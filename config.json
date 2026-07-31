@@ -1,0 +1,9 @@
+{
+  "gecitVersion": "v0.1.4",
+  "gecitReleaseBase": "https://github.com/boratanrikulu/gecit/releases/download",
+  "gecitAsset": "gecit-windows-amd64.exe",
+  "gecitChecksumFile": "checksums.txt",
+  "npcapUrl": "https://npcap.com/dist/npcap-1.83.exe",
+  "dohUpstream": "cloudflare",
+  "projectUrl": "https://github.com/boratanrikulu/gecit"
+}
