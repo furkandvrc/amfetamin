@@ -1,4 +1,4 @@
-# amfetamin — core
+# amfetamin - core
 $ErrorActionPreference = 'Stop'
 
 $Script:TaskName = 'Amfetamin-AutoStart'
@@ -263,9 +263,8 @@ function Start-AmfetaminHidden {
     if (Test-AmfetaminRunning) { return 'amfetamin zaten calisiyor' }
 
     $args = Get-EngineRunArgs
-    $errLog = Join-Path $LogDir 'amfetamin-run.err.log'
     $proc = Start-Process -FilePath $Script:EngineExe -ArgumentList $args -WorkingDirectory $BinDir `
-        -WindowStyle Hidden -PassThru -RedirectStandardOutput $Script:RunLog -RedirectStandardError $errLog
+        -WindowStyle Hidden -PassThru -RedirectStandardError $Script:RunLog
     Start-Sleep -Seconds 2
     if (-not $proc.HasExited -and (Test-AmfetaminRunning)) {
         Write-LauncherLog "amfetamin arka planda baslatildi (PID $($proc.Id))"
@@ -276,8 +275,8 @@ function Start-AmfetaminHidden {
         Invoke-EngineWarmup
         return 'amfetamin calisiyor'
     }
-    $hint = if (Test-Path $errLog) { Get-Content $errLog -Raw -ErrorAction SilentlyContinue } else { '' }
-    throw "amfetamin baslatilamadi. logs klasorune bakin.`n$hint"
+    $hint = if (Test-Path $Script:RunLog) { Get-Content $Script:RunLog -Raw -ErrorAction SilentlyContinue } else { '' }
+    throw "amfetamin baslatilamadi. logs\amfetamin-run.log dosyasina bakin.`n$hint"
 }
 
 function Start-AmfetaminVisible {
@@ -322,12 +321,22 @@ function Stop-Amfetamin {
     return 'amfetamin durduruldu'
 }
 
+function Reset-SystemDnsIfNeeded {
+    Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.ServerAddresses -contains '127.0.0.1') {
+            Set-DnsClientServerAddress -InterfaceIndex $_.InterfaceIndex -ResetServerAddresses -ErrorAction SilentlyContinue
+            Write-LauncherLog "DNS geri alindi: $($_.InterfaceAlias)"
+        }
+    }
+}
+
 function Invoke-AmfetaminCleanup {
     if (-not (Test-IsAdmin)) { throw 'Yonetici yetkisi gerekli' }
     Stop-Amfetamin | Out-Null
     if (Test-Path $Script:EngineExe) {
         & $Script:EngineExe cleanup 2>&1 | Out-Null
     }
+    Reset-SystemDnsIfNeeded
     Write-LauncherLog 'cleanup tamamlandi'
     return 'DNS ve route ayarlari geri alindi'
 }
@@ -407,7 +416,8 @@ function Uninstall-FromDevice {
     Stop-Amfetamin | Out-Null
     Invoke-AmfetaminCleanup | Out-Null
     Unregister-AutoStartTask | Out-Null
-    return 'Cihazdan kaldirildi. amfetamin durduruldu, otomatik baslatma silindi.'
+    Reset-SystemDnsIfNeeded
+    return 'Cihazdan kaldirildi. amfetamin durduruldu, otomatik baslatma silindi, DNS geri alindi.'
 }
 
 function Install-And-Start {

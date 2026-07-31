@@ -5,3 +5,5 @@ dist/
 build/
 Amfetamin.exe
 .amfetamin-run.ps1
+test-install.ps1
+test-install.log
