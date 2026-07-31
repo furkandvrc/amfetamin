@@ -209,12 +209,17 @@ function Install-NpcapGui {
 function Get-EngineRunArgs {
     param([switch]$VerboseLog)
     $cfg = Get-Config
-    $parts = @('run', '--doh-upstream', $cfg.dohUpstream)
+    $parts = @('run', '--doh-upstream', [string]$cfg.dohUpstream)
     if ($cfg.PSObject.Properties['fakeTtl'] -and $cfg.fakeTtl) {
         $parts += @('--fake-ttl', [string]$cfg.fakeTtl)
     }
     if ($VerboseLog) { $parts += '-v' }
-    return ($parts -join ' ')
+    return $parts
+}
+
+function Get-EngineRunArgsLine {
+    param([switch]$VerboseLog)
+    return ((Get-EngineRunArgs -VerboseLog:$VerboseLog) -join ' ')
 }
 
 function Invoke-EngineWarmup {
@@ -285,13 +290,18 @@ function Start-AmfetaminVisible {
     $cfg = Get-Config
     $verbose = $true
     if ($cfg.PSObject.Properties['engineVerbose'] -and $cfg.engineVerbose -eq $false) { $verbose = $false }
-    $arg = Get-EngineRunArgs -VerboseLog:$verbose
+    $upstream = [string]$cfg.dohUpstream
+    $argLine = Get-EngineRunArgsLine -VerboseLog:$verbose
     $batch = @"
 @echo off
 cd /d "$BinDir"
 title amfetamin
 echo amfetamin calisiyor. Kapatmak icin Ctrl+C
-"$EngineExe" $arg
+"$EngineExe" run --doh-upstream "$upstream"$(
+    if ($cfg.PSObject.Properties['fakeTtl'] -and $cfg.fakeTtl) { " --fake-ttl $($cfg.fakeTtl)" } else { '' }
+)$(
+    if ($verbose) { ' -v' } else { '' }
+)
 pause
 "@
     $batchPath = Join-Path $BinDir 'start-amfetamin-visible.cmd'
@@ -383,7 +393,12 @@ function Install-ToDevice {
         'Cihaza kurulum tamamlandi!',
         '- Her acilista amfetamin otomatik baslar',
         '- Simdi arka planda calisiyor',
-        "- Konum: $InstallRoot"
+        "- Konum: $InstallRoot",
+        '',
+        'Discord web acilmiyorsa tarayicida:',
+        '- Chrome/Edge: chrome://flags/#enable-quic -> Disabled',
+        '- Ayarlar -> Guvenli DNS -> Kapali',
+        '- Sayfayi yenile veya gizli pencere dene'
     )
     return ($messages -join "`n")
 }

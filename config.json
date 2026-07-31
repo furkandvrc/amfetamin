@@ -1,9 +1,9 @@
-{
-  "version": "1.1.4",
-  "dohUpstream": "cloudflare,google",
-  "fakeTtl": 8,
-  "warmup": true,
-  "engineVerbose": true,
-  "npcapUrl": "https://npcap.com/dist/npcap-1.83.exe",
-  "projectUrl": "https://github.com/furkandvrc/amfetamin"
-}
+{
+  "version": "1.1.5",
+  "dohUpstream": "cloudflare",
+  "fakeTtl": 8,
+  "warmup": true,
+  "engineVerbose": true,
+  "npcapUrl": "https://npcap.com/dist/npcap-1.83.exe",
+  "projectUrl": "https://github.com/furkandvrc/amfetamin"
+}
