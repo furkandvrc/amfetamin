@@ -230,7 +230,8 @@ function Invoke-EngineWarmup {
         'https://www.google.com/generate_204',
         'https://discord.com',
         'https://gateway.discord.gg',
-        'https://cdn.discordapp.com'
+        'https://cdn.discordapp.com',
+        'https://www.pornhub.com'
     )
     if ($cfg.PSObject.Properties['warmupUrls'] -and $cfg.warmupUrls) {
         $urls = @($cfg.warmupUrls)

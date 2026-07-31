@@ -49,18 +49,23 @@ try {
         if ($srv) { L "  $($_.InterfaceAlias): $srv" }
     }
 
-    L '--- DNS cozumleme discord.com ---'
-    foreach ($server in @('127.0.0.1', '8.8.8.8', '')) {
-        $label = if ($server) { $server } else { 'sistem varsayilan' }
-        L "  nslookup @ $label :"
-        try {
-            if ($server) { nslookup discord.com $server 2>&1 | ForEach-Object { L "    $_" } }
-            else { nslookup discord.com 2>&1 | ForEach-Object { L "    $_" } }
-        } catch { L "    HATA: $($_.Exception.Message)" }
+    L '--- DNS cozumleme ---'
+    foreach ($domain in @('discord.com', 'www.pornhub.com')) {
+        L "  [$domain]"
+        foreach ($server in @('127.0.0.1', '8.8.8.8')) {
+            L "    nslookup @ ${server}:"
+            try {
+                nslookup $domain $server 2>&1 | ForEach-Object { L "      $_" }
+            } catch { L "      HATA: $($_.Exception.Message)" }
+        }
     }
 
     L '--- TCP baglanti ---'
-    foreach ($target in @('discord.com', 'gateway.discord.gg', 'cdn.discordapp.com', 'www.google.com')) {
+    foreach ($target in @(
+        'discord.com', 'gateway.discord.gg', 'cdn.discordapp.com',
+        'www.pornhub.com', 'ei.phncdn.com',
+        'www.google.com'
+    )) {
         try {
             $t = Test-NetConnection $target -Port 443 -WarningAction SilentlyContinue
             L "  ${target}:443 -> $($t.TcpTestSucceeded)"
@@ -68,7 +73,12 @@ try {
     }
 
     L '--- HTTP test (PowerShell) ---'
-    foreach ($url in @('https://discord.com', 'https://discord.com/app', 'https://www.google.com')) {
+    foreach ($url in @(
+        'https://discord.com',
+        'https://discord.com/app',
+        'https://www.pornhub.com',
+        'https://www.google.com'
+    )) {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         try {
             $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 25
