@@ -1,5 +1,5 @@
 # amfetamin — DPI bypass launcher
-# by furkan divarcı
+# by furkandvrc
 $ErrorActionPreference = 'Stop'
 
 try {

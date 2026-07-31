@@ -21,10 +21,14 @@ $Script:EngineRemoteAsset = 'gecit-windows-amd64.exe'
 $Script:EngineChecksumFile = 'checksums.txt'
 
 function Get-ProjectRoot {
+    if ($env:AMFETAMIN_ROOT -and (Test-Path $env:AMFETAMIN_ROOT)) {
+        return $env:AMFETAMIN_ROOT
+    }
     if ($PSScriptRoot -match '\\lib$') {
         return Split-Path $PSScriptRoot -Parent
     }
-    return $PSScriptRoot
+    if ($PSScriptRoot) { return $PSScriptRoot }
+    return Split-Path -Parent $MyInvocation.MyCommand.Path
 }
 
 function Get-Config {
@@ -68,17 +72,30 @@ function Get-PowerShellPath {
     return Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 }
 
+function Get-LauncherPath {
+    $root = Get-ProjectRoot
+    $exe = Join-Path $root 'Amfetamin.exe'
+    if (Test-Path $exe) { return $exe }
+    $ps1 = Join-Path $root 'Amfetamin.ps1'
+    if (Test-Path $ps1) { return $ps1 }
+    return $MyInvocation.MyCommand.Path
+}
+
 function Request-Admin([string[]]$ExtraArgs) {
     if (Test-IsAdmin) { return $true }
-    $launcher = Join-Path (Get-ProjectRoot) 'Amfetamin.ps1'
+    $launcher = Get-LauncherPath
     $root = Get-ProjectRoot
-    $argList = @(
-        '-NoProfile', '-ExecutionPolicy', 'Bypass',
-        '-WindowStyle', 'Hidden',
-        '-File', $launcher
-    )
-    if ($ExtraArgs) { $argList += $ExtraArgs }
-    Start-Process -FilePath (Get-PowerShellPath) -Verb RunAs -WorkingDirectory $root -ArgumentList $argList
+    if ($launcher -like '*.exe') {
+        Start-Process -FilePath $launcher -Verb RunAs -WorkingDirectory $root
+    } else {
+        $argList = @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-WindowStyle', 'Hidden',
+            '-File', $launcher
+        )
+        if ($ExtraArgs) { $argList += $ExtraArgs }
+        Start-Process -FilePath (Get-PowerShellPath) -Verb RunAs -WorkingDirectory $root -ArgumentList $argList
+    }
     return $false
 }
 

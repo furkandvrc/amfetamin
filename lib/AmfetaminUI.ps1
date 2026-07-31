@@ -89,7 +89,7 @@ function Show-AmfetaminSplash {
     $splash.Controls.Add($status)
 
     $credit = New-Object System.Windows.Forms.Label
-    $credit.Text = 'by furkan divarcı'
+    $credit.Text = 'by furkandvrc'
     $credit.Font = New-AmfetaminFont 10 'Italic'
     $credit.ForeColor = $Script:AmfetaminTheme.Purple
     $credit.BackColor = $Script:AmfetaminTheme.BgDeep
@@ -98,7 +98,7 @@ function Show-AmfetaminSplash {
     $splash.Controls.Add($credit)
 
     $version = New-Object System.Windows.Forms.Label
-    $version.Text = 'v1.0.5'
+    $version.Text = 'v1.1.0'
     $version.Font = New-AmfetaminFont 8
     $version.ForeColor = $Script:AmfetaminTheme.TextMuted
     $version.BackColor = $Script:AmfetaminTheme.BgDeep
@@ -113,51 +113,33 @@ function Show-AmfetaminSplash {
         @{ pct = 75; msg = 'Arayuz hazirlaniyor...' },
         @{ pct = 100; msg = 'Hazir' }
     )
-    $stepIndex = 0
 
-    $fadeIn = New-Object System.Windows.Forms.Timer
-    $fadeIn.Interval = 25
-    $fadeIn.Add_Tick({
-        if ($splash.Opacity -lt 1) {
-            $splash.Opacity = [Math]::Min(1, $splash.Opacity + 0.08)
-        } else {
-            $fadeIn.Stop()
-            $loadTimer.Start()
+    $splash.Add_Shown({
+        for ($o = 0.08; $o -le 1; $o += 0.08) {
+            $splash.Opacity = $o
+            [System.Windows.Forms.Application]::DoEvents()
+            Start-Sleep -Milliseconds 25
         }
-    })
-
-    $loadTimer = New-Object System.Windows.Forms.Timer
-    $loadTimer.Interval = 450
-    $loadTimer.Add_Tick({
-        if ($stepIndex -lt $steps.Count) {
-            $s = $steps[$stepIndex]
+        foreach ($s in $steps) {
             $progress.Value = $s.pct
             $status.Text = $s.msg
-            if ($stepIndex -eq 2) {
+            if ($s.pct -eq 55) {
                 try {
                     $st = Get-AmfetaminStatus
                     $status.Text = "amfetamin: $(if ($st.EngineRunning) {'aktif'} else {'kapali'})  ·  Npcap: $(if ($st.NpcapInstalled) {'tamam'} else {'eksik'})"
                 } catch {}
             }
-            $stepIndex++
-        } else {
-            $loadTimer.Stop()
-            $fadeOut.Start()
+            [System.Windows.Forms.Application]::DoEvents()
+            Start-Sleep -Milliseconds 450
         }
+        for ($o = 1; $o -ge 0; $o -= 0.1) {
+            $splash.Opacity = [Math]::Max(0, $o)
+            [System.Windows.Forms.Application]::DoEvents()
+            Start-Sleep -Milliseconds 30
+        }
+        $splash.Close()
     })
 
-    $fadeOut = New-Object System.Windows.Forms.Timer
-    $fadeOut.Interval = 30
-    $fadeOut.Add_Tick({
-        if ($splash.Opacity -gt 0) {
-            $splash.Opacity = [Math]::Max(0, $splash.Opacity - 0.1)
-        } else {
-            $fadeOut.Stop()
-            $splash.Close()
-        }
-    })
-
-    $splash.Add_Shown({ $fadeIn.Start() })
     [void]$splash.ShowDialog()
 }
 
@@ -321,7 +303,7 @@ function Show-AmfetaminMainForm {
     } 38
 
     $footer = New-Object System.Windows.Forms.Label
-    $footer.Text = 'by furkan divarcı'
+    $footer.Text = 'by furkandvrc'
     $footer.Font = New-AmfetaminFont 9.5 'Italic'
     $footer.ForeColor = $t.Purple
     $footer.AutoSize = $true

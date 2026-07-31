@@ -1,6 +1,6 @@
 # amfetamin
 
-**by furkan divarcı**
+**by furkandvrc**
 
 Windows icin tek tik DPI bypass araci. WinDivert kullanmaz — Rust / EAC ile uyumludur.
 
@@ -10,7 +10,7 @@ Discord ve benzeri servislerde DPI engelini asmak icin tasarlandi. Npcap'i otoma
 
 1. [Releases](https://github.com/furkandvrc/amfetamin/releases/latest) sayfasindan **amfetamin.zip** indir
 2. Zip'i ac (ornegin `C:\amfetamin\`)
-3. **Amfetamin.bat** dosyasina cift tikla (UAC: Evet)
+3. **Amfetamin.exe** dosyasina cift tikla (UAC: Evet)
 4. **CIHAZA KUR** butonuna bas
 
 Npcap yoksa otomatik indirilir ve kurulum penceresi acilir — **Install** de, gerisini amfetamin halleder.
@@ -40,6 +40,12 @@ Kurulum sonrasi:
   config.json
 ```
 
+## Gelistirici
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build.ps1
+```
+
 ## Lisans
 
-MIT — by furkan divarcı
+MIT — by furkandvrc
