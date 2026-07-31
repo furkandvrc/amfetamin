@@ -64,12 +64,16 @@ function Test-IsAdmin {
     $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Get-PowerShellPath {
+    return Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+}
+
 function Request-Admin([string[]]$ExtraArgs) {
     if (Test-IsAdmin) { return $true }
     $launcher = Join-Path (Get-ProjectRoot) 'Amfetamin.ps1'
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$launcher`"")
     if ($ExtraArgs) { $argList += $ExtraArgs }
-    Start-Process powershellw.exe -Verb RunAs -ArgumentList $argList
+    Start-Process (Get-PowerShellPath) -Verb RunAs -ArgumentList $argList
     return $false
 }
 

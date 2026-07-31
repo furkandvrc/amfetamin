@@ -98,7 +98,7 @@ function Show-AmfetaminSplash {
     $splash.Controls.Add($credit)
 
     $version = New-Object System.Windows.Forms.Label
-    $version.Text = 'v1.0.3'
+    $version.Text = 'v1.0.4'
     $version.Font = New-AmfetaminFont 8
     $version.ForeColor = $Script:AmfetaminTheme.TextMuted
     $version.BackColor = $Script:AmfetaminTheme.BgDeep
