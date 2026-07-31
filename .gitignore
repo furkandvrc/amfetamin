@@ -4,3 +4,4 @@ logs/
 dist/
 build/
 Amfetamin.exe
+.amfetamin-run.ps1

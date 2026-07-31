@@ -28,7 +28,7 @@ try {
 }
 '@
 
-@('# amfetamin bundle — by furkandvrc', $core, $ui, $main) -join "`r`n" | Set-Content $bundle -Encoding UTF8
+@('# amfetamin bundle - by furkandvrc', $core, $ui, $main) -join "`r`n" | Set-Content $bundle -Encoding ASCII
 
 $scriptText = Get-Content $bundle -Raw -Encoding UTF8
 $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($scriptText))
@@ -61,15 +61,13 @@ static class AmfetaminLauncher
                 return 1;
             }
 
-            string tempDir = Path.Combine(Path.GetTempPath(), "amfetamin-run");
-            Directory.CreateDirectory(tempDir);
-            string tempScript = Path.Combine(tempDir, "run.ps1");
-            File.WriteAllText(tempScript, Encoding.UTF8.GetString(Convert.FromBase64String(ScriptB64)), new UTF8Encoding(false));
+            string scriptPath = Path.Combine(dir, ".amfetamin-run.ps1");
+            File.WriteAllText(scriptPath, Encoding.UTF8.GetString(Convert.FromBase64String(ScriptB64)), new UTF8Encoding(false));
 
             var psi = new ProcessStartInfo
             {
                 FileName = ps,
-                Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + tempScript + "\"",
+                Arguments = "-NoProfile -ExecutionPolicy Bypass -STA -File \"" + scriptPath + "\"",
                 WorkingDirectory = dir,
                 UseShellExecute = false,
                 CreateNoWindow = true
@@ -79,6 +77,10 @@ static class AmfetaminLauncher
             using (var proc = Process.Start(psi))
             {
                 proc.WaitForExit();
+                if (proc.ExitCode != 0)
+                {
+                    MessageBox.Show("amfetamin baslatilamadi (kod: " + proc.ExitCode + ")", "amfetamin", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
                 return proc.ExitCode;
             }
         }

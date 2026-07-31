@@ -98,7 +98,7 @@ function Show-AmfetaminSplash {
     $splash.Controls.Add($credit)
 
     $version = New-Object System.Windows.Forms.Label
-    $version.Text = 'v1.1.0'
+    $version.Text = 'v1.1.1'
     $version.Font = New-AmfetaminFont 8
     $version.ForeColor = $Script:AmfetaminTheme.TextMuted
     $version.BackColor = $Script:AmfetaminTheme.BgDeep
@@ -115,10 +115,10 @@ function Show-AmfetaminSplash {
     )
 
     $splash.Add_Shown({
-        for ($o = 0.08; $o -le 1; $o += 0.08) {
+        for ($o = 0.15; $o -le 1; $o += 0.15) {
             $splash.Opacity = $o
             [System.Windows.Forms.Application]::DoEvents()
-            Start-Sleep -Milliseconds 25
+            Start-Sleep -Milliseconds 15
         }
         foreach ($s in $steps) {
             $progress.Value = $s.pct
@@ -130,12 +130,12 @@ function Show-AmfetaminSplash {
                 } catch {}
             }
             [System.Windows.Forms.Application]::DoEvents()
-            Start-Sleep -Milliseconds 450
+            Start-Sleep -Milliseconds 120
         }
-        for ($o = 1; $o -ge 0; $o -= 0.1) {
+        for ($o = 1; $o -ge 0; $o -= 0.2) {
             $splash.Opacity = [Math]::Max(0, $o)
             [System.Windows.Forms.Application]::DoEvents()
-            Start-Sleep -Milliseconds 30
+            Start-Sleep -Milliseconds 15
         }
         $splash.Close()
     })
