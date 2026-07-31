@@ -1,9 +1,6 @@
 {
-  "gecitVersion": "v0.1.4",
-  "gecitReleaseBase": "https://github.com/boratanrikulu/gecit/releases/download",
-  "gecitAsset": "gecit-windows-amd64.exe",
-  "gecitChecksumFile": "checksums.txt",
-  "npcapUrl": "https://npcap.com/dist/npcap-1.83.exe",
+  "version": "1.0.1",
   "dohUpstream": "cloudflare",
-  "projectUrl": "https://github.com/boratanrikulu/gecit"
+  "npcapUrl": "https://npcap.com/dist/npcap-1.83.exe",
+  "projectUrl": "https://github.com/furkandvrc/amfetamin"
 }

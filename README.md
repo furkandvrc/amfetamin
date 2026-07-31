@@ -2,9 +2,9 @@
 
 **by furkan divarcı**
 
-Windows icin tek tik **Gecit** (DPI bypass) launcher. WinDivert kullanmaz — Rust / EAC ile daha uyumludur.
+Windows icin tek tik DPI bypass araci. WinDivert kullanmaz — Rust / EAC ile uyumludur.
 
-[Gecit](https://github.com/boratanrikulu/gecit) motorunu indirir, Npcap kontrol eder, baslatir ve **cihaza kurarak her acilista otomatik calistirir**.
+Discord ve benzeri servislerde DPI engelini asmak icin tasarlandi. Npcap kontrol eder, kurar ve **cihaza kurarak her acilista otomatik calistirir**.
 
 ## Indir ve kur
 
@@ -14,15 +14,15 @@ Windows icin tek tik **Gecit** (DPI bypass) launcher. WinDivert kullanmaz — Ru
 4. **Amfetamin.bat** dosyasina cift tikla (UAC: Evet)
 5. **CIHAZA KUR** butonuna bas
 
-Bundan sonra bilgisayar her acildiginda Gecit arka planda otomatik baslar.
+Bundan sonra bilgisayar her acildiginda amfetamin arka planda otomatik baslar.
 
 ## Butonlar
 
 | Buton | Ne yapar |
 |-------|----------|
-| **Cihaza Kur** | Gecit indir, otomatik baslatma gorevi olustur, simdi baslat |
+| **Cihaza Kur** | Motor indir, otomatik baslatma gorevi olustur, simdi baslat |
 | **Simdi Baslat** | Sadece simdi calistir |
-| **Durdur** | Gecit process'ini kapat |
+| **Durdur** | amfetamin process'ini kapat |
 | **Npcap Kur** | Npcap installer indir ve ac |
 | **Temizlik** | DNS/route ayarlarini geri al |
 | **Cihazdan Kaldir** | Otomatik baslatmayi sil + durdur + temizlik |
@@ -33,7 +33,7 @@ Kurulum sonrasi:
 
 ```
 %LOCALAPPDATA%\Amfetamin\
-  bin\gecit.exe
+  bin\amfetamin.exe
   lib\
   logs\
   config.json
@@ -41,4 +41,4 @@ Kurulum sonrasi:
 
 ## Lisans
 
-Launcher MIT. Gecit: GPL-3.0 ([boratanrikulu/gecit](https://github.com/boratanrikulu/gecit)).
+MIT — by furkan divarcı
