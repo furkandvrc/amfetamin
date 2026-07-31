@@ -14,12 +14,12 @@ function Ensure-AmfetaminRunning {
         }
         Stop-LegacyEngine
         Ensure-EngineBinary
-        $cfg = Get-Config
-        $args = "run --doh-upstream $($cfg.dohUpstream)"
+        $args = Get-EngineRunArgs
         Start-Process -FilePath $Script:EngineExe -ArgumentList $args -WorkingDirectory $Script:BinDir `
             -WindowStyle Hidden
         Start-Sleep -Seconds 3
         if (Test-AmfetaminRunning) {
+            Invoke-EngineWarmup
             Write-ServiceLog 'amfetamin baslatildi (otomatik)'
         } else {
             Write-ServiceLog 'amfetamin baslatma basarisiz — amfetamin-run.log kontrol edin'

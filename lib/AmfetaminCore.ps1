@@ -206,6 +206,50 @@ function Install-NpcapGui {
     return Install-NpcapAuto
 }
 
+function Get-EngineRunArgs {
+    param([switch]$VerboseLog)
+    $cfg = Get-Config
+    $parts = @('run', '--doh-upstream', $cfg.dohUpstream)
+    if ($cfg.PSObject.Properties['fakeTtl'] -and $cfg.fakeTtl) {
+        $parts += @('--fake-ttl', [string]$cfg.fakeTtl)
+    }
+    if ($VerboseLog) { $parts += '-v' }
+    return ($parts -join ' ')
+}
+
+function Invoke-EngineWarmup {
+    $cfg = Get-Config
+    if ($cfg.PSObject.Properties['warmup'] -and $cfg.warmup -eq $false) { return }
+
+    $urls = @(
+        'https://www.google.com/generate_204',
+        'https://discord.com',
+        'https://gateway.discord.gg',
+        'https://cdn.discordapp.com'
+    )
+    if ($cfg.PSObject.Properties['warmupUrls'] -and $cfg.warmupUrls) {
+        $urls = @($cfg.warmupUrls)
+    }
+
+    $job = Start-Job -ScriptBlock {
+        param($List)
+        foreach ($url in $List) {
+            try {
+                Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 6 -Method Head -ErrorAction Stop | Out-Null
+            } catch {
+                try {
+                    Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 6 -ErrorAction Stop | Out-Null
+                } catch {}
+            }
+        }
+    } -ArgumentList (,$urls)
+
+    $done = Wait-Job $job -Timeout 12
+    if ($done) { Receive-Job $job | Out-Null }
+    Remove-Job $job -Force -ErrorAction SilentlyContinue
+    Write-LauncherLog 'Motor isinma tamamlandi'
+}
+
 function Start-AmfetaminHidden {
     if (-not (Test-IsAdmin)) { throw 'Yonetici yetkisi gerekli' }
     if (-not (Test-NpcapInstalled)) { throw 'Npcap kurulu degil' }
@@ -213,17 +257,20 @@ function Start-AmfetaminHidden {
     Stop-LegacyEngine
     if (Test-AmfetaminRunning) { return 'amfetamin zaten calisiyor' }
 
-    $cfg = Get-Config
-    $args = "run --doh-upstream $($cfg.dohUpstream)"
+    $args = Get-EngineRunArgs
     $errLog = Join-Path $LogDir 'amfetamin-run.err.log'
     $proc = Start-Process -FilePath $Script:EngineExe -ArgumentList $args -WorkingDirectory $BinDir `
         -WindowStyle Hidden -PassThru -RedirectStandardOutput $Script:RunLog -RedirectStandardError $errLog
     Start-Sleep -Seconds 2
     if (-not $proc.HasExited -and (Test-AmfetaminRunning)) {
         Write-LauncherLog "amfetamin arka planda baslatildi (PID $($proc.Id))"
+        Invoke-EngineWarmup
         return 'amfetamin arka planda baslatildi'
     }
-    if (Test-AmfetaminRunning) { return 'amfetamin calisiyor' }
+    if (Test-AmfetaminRunning) {
+        Invoke-EngineWarmup
+        return 'amfetamin calisiyor'
+    }
     $hint = if (Test-Path $errLog) { Get-Content $errLog -Raw -ErrorAction SilentlyContinue } else { '' }
     throw "amfetamin baslatilamadi. logs klasorune bakin.`n$hint"
 }
@@ -236,7 +283,9 @@ function Start-AmfetaminVisible {
     if (Test-AmfetaminRunning) { return 'amfetamin zaten calisiyor' }
 
     $cfg = Get-Config
-    $arg = "run --doh-upstream $($cfg.dohUpstream) -v"
+    $verbose = $true
+    if ($cfg.PSObject.Properties['engineVerbose'] -and $cfg.engineVerbose -eq $false) { $verbose = $false }
+    $arg = Get-EngineRunArgs -VerboseLog:$verbose
     $batch = @"
 @echo off
 cd /d "$BinDir"
