@@ -1,5 +1,5 @@
 {
-  "version": "1.0.2",
+  "version": "1.0.3",
   "dohUpstream": "cloudflare",
   "npcapUrl": "https://npcap.com/dist/npcap-1.83.exe",
   "projectUrl": "https://github.com/furkandvrc/amfetamin"

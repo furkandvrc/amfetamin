@@ -145,15 +145,32 @@ function Sync-LauncherToDevice {
     Write-LauncherLog 'amfetamin dosyalari cihaza kopyalandi'
 }
 
-function Install-NpcapGui {
+function Install-NpcapAuto {
+    if (Test-NpcapInstalled) { return $null }
+    if (-not (Test-IsAdmin)) { throw 'Yonetici yetkisi gerekli' }
+
     Ensure-Dirs
     $cfg = Get-Config
     if (-not (Test-Path $Script:NpcapInstaller)) {
         Invoke-DownloadFile $cfg.npcapUrl $Script:NpcapInstaller
     }
-    Write-LauncherLog 'Npcap GUI kurulumu baslatiliyor'
-    Start-Process -FilePath $Script:NpcapInstaller -Verb RunAs
-    return 'Npcap kurulum penceresi acildi. "WinPcap API-compatible Mode" isaretli olsun.'
+
+    Write-LauncherLog 'Npcap kurulumu baslatiliyor'
+    $installArgs = '/winpcap_mode=yes'
+    Start-Process -FilePath $Script:NpcapInstaller -ArgumentList $installArgs -Verb RunAs -Wait | Out-Null
+    Start-Sleep -Seconds 2
+
+    if (-not (Test-NpcapInstalled)) {
+        throw 'Npcap kurulamadi. Acilan pencerede kurulumu tamamlayip tekrar deneyin.'
+    }
+
+    Write-LauncherLog 'Npcap kuruldu'
+    return 'Npcap kuruldu'
+}
+
+function Install-NpcapGui {
+    if (Test-NpcapInstalled) { return 'Npcap zaten kurulu' }
+    return Install-NpcapAuto
 }
 
 function Start-AmfetaminHidden {
@@ -257,24 +274,26 @@ function Unregister-AutoStartTask {
 }
 
 function Install-ToDevice {
+    if (-not (Test-IsAdmin)) { throw 'Yonetici yetkisi gerekli' }
+
+    $messages = @()
     if (-not (Test-NpcapInstalled)) {
-        Install-NpcapGui
-        return @(
-            'Npcap gerekli — kurulum penceresi acildi.',
-            'Npcap kurup (gerekirse yeniden baslatin), tekrar "Cihaza Kur" deyin.'
-        ) -join "`n"
+        $npcapMsg = Install-NpcapAuto
+        if ($npcapMsg) { $messages += $npcapMsg }
     }
 
     Sync-LauncherToDevice
     Ensure-EngineBinary
     Register-AutoStartTask
     Start-AmfetaminHidden
-    return @(
+
+    $messages += @(
         'Cihaza kurulum tamamlandi!',
         '- Her acilista amfetamin otomatik baslar',
         '- Simdi arka planda calisiyor',
         "- Konum: $InstallRoot"
-    ) -join "`n"
+    )
+    return ($messages -join "`n")
 }
 
 function Uninstall-FromDevice {
@@ -286,8 +305,7 @@ function Uninstall-FromDevice {
 
 function Install-And-Start {
     if (-not (Test-NpcapInstalled)) {
-        Install-NpcapGui
-        return 'Npcap kurulumu gerekli — pencere acildi. Kurulumdan sonra tekrar deneyin.'
+        Install-NpcapAuto | Out-Null
     }
     Sync-LauncherToDevice
     Start-AmfetaminVisible

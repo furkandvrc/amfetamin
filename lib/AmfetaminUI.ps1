@@ -98,7 +98,7 @@ function Show-AmfetaminSplash {
     $splash.Controls.Add($credit)
 
     $version = New-Object System.Windows.Forms.Label
-    $version.Text = 'v1.0.2'
+    $version.Text = 'v1.0.3'
     $version.Font = New-AmfetaminFont 8
     $version.ForeColor = $Script:AmfetaminTheme.TextMuted
     $version.BackColor = $Script:AmfetaminTheme.BgDeep
@@ -198,7 +198,11 @@ function Show-AmfetaminInstallWizard {
     $wiz.Add_Shown({
         $log.AppendText("> Dosyalar hazirlaniyor...`r`n")
         [System.Windows.Forms.Application]::DoEvents()
+        $log.AppendText("> Npcap kontrol ediliyor...`r`n")
+        [System.Windows.Forms.Application]::DoEvents()
         try {
+            $log.AppendText("> Eksik bilesenler kuruluyor...`r`n")
+            [System.Windows.Forms.Application]::DoEvents()
             $log.AppendText("> amfetamin indiriliyor / dogrulaniyor...`r`n")
             [System.Windows.Forms.Application]::DoEvents()
             $result = & $InstallAction
