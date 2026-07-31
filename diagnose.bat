@@ -1,9 +1,16 @@
 @echo off
 cd /d "%~dp0"
 title amfetamin teshis
-echo amfetamin teshis araci baslatiliyor...
 echo.
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"\"%~dp0diagnose.ps1\"\"' -Wait"
+echo amfetamin teshis araci
+echo Dosya bu klasore yazilacak: %~dp0amfetamin-diagnose.txt
 echo.
-echo Bitti. Masaustunde amfetamin-diagnose.txt dosyasina bak.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0diagnose.ps1"
+echo.
+if exist "%~dp0amfetamin-diagnose.txt" (
+    echo BASARILI: %~dp0amfetamin-diagnose.txt
+) else (
+    echo UYARI: Dosya olusmadi. TEMP klasorune bak: %TEMP%\amfetamin-diagnose.txt
+)
+echo.
 pause
