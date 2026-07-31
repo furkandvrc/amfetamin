@@ -1,4 +1,4 @@
-# Gecit Launcher - core functions
+# amfetamin — core
 $ErrorActionPreference = 'Stop'
 
 $Script:TaskName = 'Amfetamin-AutoStart'
@@ -6,13 +6,19 @@ $Script:InstallRoot = Join-Path $env:LOCALAPPDATA 'Amfetamin'
 $Script:BinDir = Join-Path $InstallRoot 'bin'
 $Script:LogDir = Join-Path $InstallRoot 'logs'
 $Script:LibDir = Join-Path $InstallRoot 'lib'
-$Script:GecitExe = Join-Path $BinDir 'gecit.exe'
+$Script:EngineExe = Join-Path $BinDir 'amfetamin.exe'
 $Script:NpcapInstaller = Join-Path $BinDir 'npcap-installer.exe'
 $Script:ConfigPath = Join-Path $InstallRoot 'config.json'
-$Script:ServiceScript = Join-Path $LibDir 'run-gecit-service.ps1'
-$Script:RunLog = Join-Path $LogDir 'gecit-run.log'
+$Script:ServiceScript = Join-Path $LibDir 'run-amfetamin-service.ps1'
+$Script:RunLog = Join-Path $LogDir 'amfetamin-run.log'
 $Script:LauncherLog = Join-Path $LogDir 'launcher.log'
 $Script:ServiceLog = Join-Path $LogDir 'service.log'
+
+# Motor indirme (v0.1.4)
+$Script:EngineVersion = 'v0.1.4'
+$Script:EngineReleaseBase = 'https://github.com/boratanrikulu/gecit/releases/download'
+$Script:EngineRemoteAsset = 'gecit-windows-amd64.exe'
+$Script:EngineChecksumFile = 'checksums.txt'
 
 function Get-ProjectRoot {
     if ($PSScriptRoot -match '\\lib$') {
@@ -74,8 +80,14 @@ function Test-NpcapInstalled {
     return $false
 }
 
-function Test-GecitRunning {
-    return $null -ne (Get-Process -Name 'gecit' -ErrorAction SilentlyContinue)
+function Stop-LegacyEngine {
+    Get-Process -Name 'gecit' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    $legacy = Join-Path $BinDir 'gecit.exe'
+    if (Test-Path $legacy) { Remove-Item $legacy -Force -ErrorAction SilentlyContinue }
+}
+
+function Test-AmfetaminRunning {
+    return $null -ne (Get-Process -Name 'amfetamin' -ErrorAction SilentlyContinue)
 }
 
 function Test-AutoStartInstalled {
@@ -83,11 +95,11 @@ function Test-AutoStartInstalled {
     return $null -ne $task
 }
 
-function Get-GecitStatus {
+function Get-AmfetaminStatus {
     [PSCustomObject]@{
         NpcapInstalled = Test-NpcapInstalled
-        GecitDownloaded = Test-Path $Script:GecitExe
-        GecitRunning = Test-GecitRunning
+        EngineDownloaded = Test-Path $Script:EngineExe
+        EngineRunning = Test-AmfetaminRunning
         AutoStartInstalled = Test-AutoStartInstalled
         InstallRoot = $Script:InstallRoot
     }
@@ -98,37 +110,39 @@ function Invoke-DownloadFile([string]$Url, [string]$Dest) {
     Invoke-WebRequest -Uri $Url -OutFile $Dest -UseBasicParsing
 }
 
-function Install-GecitBinary {
+function Install-EngineBinary {
     Ensure-Dirs
-    $cfg = Get-Config
-    $base = "$($cfg.gecitReleaseBase)/$($cfg.gecitVersion)"
-    Invoke-DownloadFile "$base/$($cfg.gecitChecksumFile)" (Join-Path $BinDir 'checksums.txt')
-    Invoke-DownloadFile "$base/$($cfg.gecitAsset)" $Script:GecitExe
+    Stop-LegacyEngine
+    $base = "$($Script:EngineReleaseBase)/$($Script:EngineVersion)"
+    Invoke-DownloadFile "$base/$($Script:EngineChecksumFile)" (Join-Path $BinDir 'checksums.txt')
+    $tmp = Join-Path $BinDir '_download.tmp'
+    Invoke-DownloadFile "$base/$($Script:EngineRemoteAsset)" $tmp
 
-    $expectedLine = Get-Content (Join-Path $BinDir 'checksums.txt') | Where-Object { $_ -match 'gecit-windows-amd64\.exe' }
-    if (-not $expectedLine) { throw 'checksums.txt icinde Windows asset bulunamadi' }
+    $expectedLine = Get-Content (Join-Path $BinDir 'checksums.txt') | Where-Object { $_ -match [regex]::Escape($Script:EngineRemoteAsset) }
+    if (-not $expectedLine) { throw 'checksums.txt icinde motor dosyasi bulunamadi' }
     $expectedHash = ($expectedLine -split '\s+')[0].ToUpperInvariant()
-    $actualHash = (Get-FileHash $Script:GecitExe -Algorithm SHA256).Hash.ToUpperInvariant()
+    $actualHash = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToUpperInvariant()
     if ($expectedHash -ne $actualHash) {
-        Remove-Item $Script:GecitExe -Force -ErrorAction SilentlyContinue
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
         throw "SHA256 uyusmadi! Beklenen: $expectedHash Alinan: $actualHash"
     }
-    Write-LauncherLog 'gecit.exe indirildi ve dogrulandi'
+    Move-Item $tmp $Script:EngineExe -Force
+    Write-LauncherLog 'amfetamin.exe indirildi ve dogrulandi'
 }
 
-function Ensure-GecitBinary {
-    if (Test-Path $Script:GecitExe) { return }
-    Install-GecitBinary
+function Ensure-EngineBinary {
+    if (Test-Path $Script:EngineExe) { return }
+    Install-EngineBinary
 }
 
 function Sync-LauncherToDevice {
     Ensure-Dirs
     $projectRoot = Get-ProjectRoot
     Copy-Item (Join-Path $projectRoot 'config.json') $Script:ConfigPath -Force
-    Copy-Item (Join-Path $projectRoot 'lib\GecitCore.ps1') (Join-Path $LibDir 'GecitCore.ps1') -Force
-    Copy-Item (Join-Path $projectRoot 'lib\run-gecit-service.ps1') $Script:ServiceScript -Force
+    Copy-Item (Join-Path $projectRoot 'lib\AmfetaminCore.ps1') (Join-Path $LibDir 'AmfetaminCore.ps1') -Force
+    Copy-Item (Join-Path $projectRoot 'lib\run-amfetamin-service.ps1') $Script:ServiceScript -Force
     Copy-Item (Join-Path $projectRoot 'lib\AmfetaminUI.ps1') (Join-Path $LibDir 'AmfetaminUI.ps1') -Force -ErrorAction SilentlyContinue
-    Write-LauncherLog 'Launcher dosyalari cihaza kopyalandi'
+    Write-LauncherLog 'amfetamin dosyalari cihaza kopyalandi'
 }
 
 function Install-NpcapGui {
@@ -142,61 +156,66 @@ function Install-NpcapGui {
     return 'Npcap kurulum penceresi acildi. "WinPcap API-compatible Mode" isaretli olsun.'
 }
 
-function Start-GecitHidden {
+function Start-AmfetaminHidden {
     if (-not (Test-IsAdmin)) { throw 'Yonetici yetkisi gerekli' }
     if (-not (Test-NpcapInstalled)) { throw 'Npcap kurulu degil' }
-    Ensure-GecitBinary
-    if (Test-GecitRunning) { return 'Gecit zaten calisiyor' }
+    Ensure-EngineBinary
+    Stop-LegacyEngine
+    if (Test-AmfetaminRunning) { return 'amfetamin zaten calisiyor' }
 
     $cfg = Get-Config
     $args = "run --doh-upstream $($cfg.dohUpstream)"
-    $proc = Start-Process -FilePath $Script:GecitExe -ArgumentList $args -WorkingDirectory $BinDir `
-        -WindowStyle Hidden -PassThru
+    $proc = Start-Process -FilePath $Script:EngineExe -ArgumentList $args -WorkingDirectory $BinDir `
+        -WindowStyle Hidden -PassThru -RedirectStandardOutput $Script:RunLog -RedirectStandardError $Script:RunLog
     Start-Sleep -Seconds 2
-    if (-not $proc.HasExited -and (Test-GecitRunning)) {
-        Write-LauncherLog "Gecit arka planda baslatildi (PID $($proc.Id))"
-        return 'Gecit arka planda baslatildi'
+    if (-not $proc.HasExited -and (Test-AmfetaminRunning)) {
+        Write-LauncherLog "amfetamin arka planda baslatildi (PID $($proc.Id))"
+        return 'amfetamin arka planda baslatildi'
     }
-    if (Test-GecitRunning) { return 'Gecit calisiyor' }
-    throw 'Gecit baslatilamadi. logs\gecit-run.log dosyasina bakin'
+    if (Test-AmfetaminRunning) { return 'amfetamin calisiyor' }
+    throw 'amfetamin baslatilamadi. logs\amfetamin-run.log dosyasina bakin'
 }
 
-function Start-GecitVisible {
+function Start-AmfetaminVisible {
     if (-not (Test-IsAdmin)) { throw 'Yonetici yetkisi gerekli' }
     if (-not (Test-NpcapInstalled)) { throw 'Npcap kurulu degil' }
-    Ensure-GecitBinary
-    if (Test-GecitRunning) { return 'Gecit zaten calisiyor' }
+    Ensure-EngineBinary
+    Stop-LegacyEngine
+    if (Test-AmfetaminRunning) { return 'amfetamin zaten calisiyor' }
 
     $cfg = Get-Config
     $arg = "run --doh-upstream $($cfg.dohUpstream) -v"
     $batch = @"
 @echo off
 cd /d "$BinDir"
-title Gecit - DPI Bypass
-echo Gecit calisiyor. Kapatmak icin Ctrl+C
-"$GecitExe" $arg
+title amfetamin
+echo amfetamin calisiyor. Kapatmak icin Ctrl+C
+"$EngineExe" $arg
 pause
 "@
-    $batchPath = Join-Path $BinDir 'start-gecit-visible.cmd'
+    $batchPath = Join-Path $BinDir 'start-amfetamin-visible.cmd'
     Set-Content -Path $batchPath -Value $batch -Encoding ASCII
     Start-Process cmd.exe -ArgumentList "/c `"$batchPath`"" -Verb RunAs
     Start-Sleep -Seconds 2
-    return 'Gecit konsol penceresi acildi'
+    return 'amfetamin konsol penceresi acildi'
 }
 
-function Stop-Gecit {
-    $procs = Get-Process -Name 'gecit' -ErrorAction SilentlyContinue
-    if (-not $procs) { return 'Gecit zaten calismiyor' }
+function Stop-Amfetamin {
+    $procs = Get-Process -Name 'amfetamin' -ErrorAction SilentlyContinue
+    if (-not $procs) {
+        Stop-LegacyEngine | Out-Null
+        return 'amfetamin zaten calismiyor'
+    }
     $procs | Stop-Process -Force
-    Write-LauncherLog 'Gecit durduruldu'
-    return 'Gecit durduruldu'
+    Write-LauncherLog 'amfetamin durduruldu'
+    return 'amfetamin durduruldu'
 }
 
-function Invoke-GecitCleanup {
+function Invoke-AmfetaminCleanup {
     if (-not (Test-IsAdmin)) { throw 'Yonetici yetkisi gerekli' }
-    Stop-Gecit | Out-Null
-    if (Test-Path $Script:GecitExe) {
-        & $Script:GecitExe cleanup 2>&1 | Out-Null
+    Stop-Amfetamin | Out-Null
+    if (Test-Path $Script:EngineExe) {
+        & $Script:EngineExe cleanup 2>&1 | Out-Null
     }
     Write-LauncherLog 'cleanup tamamlandi'
     return 'DNS ve route ayarlari geri alindi'
@@ -205,7 +224,7 @@ function Invoke-GecitCleanup {
 function Register-AutoStartTask {
     if (-not (Test-IsAdmin)) { throw 'Yonetici yetkisi gerekli' }
     Sync-LauncherToDevice
-    Ensure-GecitBinary
+    Ensure-EngineBinary
 
     $existing = Get-ScheduledTask -TaskName $Script:TaskName -ErrorAction SilentlyContinue
     if ($existing) {
@@ -222,7 +241,7 @@ function Register-AutoStartTask {
     $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest -LogonType Interactive
 
     Register-ScheduledTask -TaskName $Script:TaskName -Action $action -Trigger @($triggerLogon, $triggerBoot) `
-        -Settings $settings -Principal $principal -Description 'amfetamin — Gecit DPI bypass otomatik baslatma' | Out-Null
+        -Settings $settings -Principal $principal -Description 'amfetamin — otomatik baslatma' | Out-Null
     Write-LauncherLog 'Zamanlanmis gorev olusturuldu'
 }
 
@@ -247,22 +266,22 @@ function Install-ToDevice {
     }
 
     Sync-LauncherToDevice
-    Ensure-GecitBinary
+    Ensure-EngineBinary
     Register-AutoStartTask
-    Start-GecitHidden
+    Start-AmfetaminHidden
     return @(
         'Cihaza kurulum tamamlandi!',
-        '- Her acilista Gecit otomatik baslar',
+        '- Her acilista amfetamin otomatik baslar',
         '- Simdi arka planda calisiyor',
         "- Konum: $InstallRoot"
     ) -join "`n"
 }
 
 function Uninstall-FromDevice {
-    Stop-Gecit | Out-Null
-    Invoke-GecitCleanup | Out-Null
+    Stop-Amfetamin | Out-Null
+    Invoke-AmfetaminCleanup | Out-Null
     Unregister-AutoStartTask | Out-Null
-    return 'Cihazdan kaldirildi. Gecit durduruldu, otomatik baslatma silindi.'
+    return 'Cihazdan kaldirildi. amfetamin durduruldu, otomatik baslatma silindi.'
 }
 
 function Install-And-Start {
@@ -271,5 +290,5 @@ function Install-And-Start {
         return 'Npcap kurulumu gerekli — pencere acildi. Kurulumdan sonra tekrar deneyin.'
     }
     Sync-LauncherToDevice
-    Start-GecitVisible
+    Start-AmfetaminVisible
 }
