@@ -30,6 +30,21 @@ function Set-AmfetaminFormStyle($form, $title) {
     $form.StartPosition = 'CenterScreen'
     $form.FormBorderStyle = 'FixedSingle'
     $form.MaximizeBox = $false
+    $icon = Get-AmfetaminIcon
+    if ($icon) { $form.Icon = $icon }
+}
+
+function Get-AmfetaminIcon {
+    if ($Script:AmfetaminIcon) { return $Script:AmfetaminIcon }
+    $root = Get-ProjectRoot
+    foreach ($name in @('amfetamin.ico', (Join-Path 'assets' 'amfetamin.ico'))) {
+        $path = Join-Path $root $name
+        if (Test-Path $path) {
+            $Script:AmfetaminIcon = New-Object System.Drawing.Icon($path)
+            return $Script:AmfetaminIcon
+        }
+    }
+    return $null
 }
 
 function Show-AmfetaminSplash {
@@ -40,7 +55,9 @@ function Show-AmfetaminSplash {
     $splash.BackColor = $Script:AmfetaminTheme.BgDeep
     $splash.TopMost = $true
     $splash.Opacity = 0
-    $splash.ShowInTaskbar = $false
+    $splash.ShowInTaskbar = $true
+    $icon = Get-AmfetaminIcon
+    if ($icon) { $splash.Icon = $icon }
 
     $topBar = New-Object System.Windows.Forms.Panel
     $topBar.Size = New-Object System.Drawing.Size(520, 4)
@@ -98,7 +115,8 @@ function Show-AmfetaminSplash {
     $splash.Controls.Add($credit)
 
     $version = New-Object System.Windows.Forms.Label
-    $version.Text = 'v1.1.2'
+    try { $ver = (Get-Config).version } catch { $ver = '1.1.3' }
+    $version.Text = "v$ver"
     $version.Font = New-AmfetaminFont 8
     $version.ForeColor = $Script:AmfetaminTheme.TextMuted
     $version.BackColor = $Script:AmfetaminTheme.BgDeep

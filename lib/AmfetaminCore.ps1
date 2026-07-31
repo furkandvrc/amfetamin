@@ -168,6 +168,13 @@ function Sync-LauncherToDevice {
     Copy-Item (Join-Path $projectRoot 'lib\AmfetaminCore.ps1') (Join-Path $LibDir 'AmfetaminCore.ps1') -Force
     Copy-Item (Join-Path $projectRoot 'lib\run-amfetamin-service.ps1') $Script:ServiceScript -Force
     Copy-Item (Join-Path $projectRoot 'lib\AmfetaminUI.ps1') (Join-Path $LibDir 'AmfetaminUI.ps1') -Force -ErrorAction SilentlyContinue
+    foreach ($icoName in @('amfetamin.ico', (Join-Path 'assets' 'amfetamin.ico'))) {
+        $icoSrc = Join-Path $projectRoot $icoName
+        if (Test-Path $icoSrc) {
+            Copy-Item $icoSrc (Join-Path $InstallRoot 'amfetamin.ico') -Force
+            break
+        }
+    }
     Write-LauncherLog 'amfetamin dosyalari cihaza kopyalandi'
 }
 
@@ -208,15 +215,17 @@ function Start-AmfetaminHidden {
 
     $cfg = Get-Config
     $args = "run --doh-upstream $($cfg.dohUpstream)"
+    $errLog = Join-Path $LogDir 'amfetamin-run.err.log'
     $proc = Start-Process -FilePath $Script:EngineExe -ArgumentList $args -WorkingDirectory $BinDir `
-        -WindowStyle Hidden -PassThru -RedirectStandardOutput $Script:RunLog -RedirectStandardError $Script:RunLog
+        -WindowStyle Hidden -PassThru -RedirectStandardOutput $Script:RunLog -RedirectStandardError $errLog
     Start-Sleep -Seconds 2
     if (-not $proc.HasExited -and (Test-AmfetaminRunning)) {
         Write-LauncherLog "amfetamin arka planda baslatildi (PID $($proc.Id))"
         return 'amfetamin arka planda baslatildi'
     }
     if (Test-AmfetaminRunning) { return 'amfetamin calisiyor' }
-    throw 'amfetamin baslatilamadi. logs\amfetamin-run.log dosyasina bakin'
+    $hint = if (Test-Path $errLog) { Get-Content $errLog -Raw -ErrorAction SilentlyContinue } else { '' }
+    throw "amfetamin baslatilamadi. logs klasorune bakin.`n$hint"
 }
 
 function Start-AmfetaminVisible {
@@ -316,7 +325,10 @@ function Install-ToDevice {
     Sync-LauncherToDevice
     Ensure-EngineBinary
     Register-AutoStartTask
-    Start-AmfetaminHidden
+    Start-AmfetaminHidden | Out-Null
+    if (-not (Test-AmfetaminRunning)) {
+        throw 'Kurulum kaydedildi ama motor baslatilamadi. SIMDI BASLAT ile tekrar deneyin.'
+    }
 
     $messages += @(
         'Cihaza kurulum tamamlandi!',
