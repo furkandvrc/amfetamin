@@ -316,8 +316,14 @@ function Show-AmfetaminMainForm {
     Add-Btn 'NPCAP KUR' 380 ([System.Drawing.Color]::FromArgb(70, 70, 95)) {
         try { Show-Result (Install-NpcapGui) } catch { Show-Result $_.Exception.Message }
     }
-    Add-Btn 'TEMIZLIK' 432 $t.Warning {
-        try { Show-Result (Invoke-AmfetaminCleanup) } catch { Show-Result $_.Exception.Message }
+    Add-Btn 'TEMIZLIK  ·  durdur + otomatik kapat' 432 $t.Warning {
+        $r = [System.Windows.Forms.MessageBox]::Show(
+            "Tam temizlik yapilacak:`n- Motor durdurulur`n- Route/DNS ayarlari geri alinir`n- Otomatik baslatma (arka plan) silinir`n- Sistem DNS duzeltilir",
+            'amfetamin', 'YesNo', 'Warning')
+        if ($r -eq 'Yes') {
+            try { Show-Result (Invoke-AmfetaminCleanup) } catch { Show-Result $_.Exception.Message }
+            Update-Status
+        }
     } 38
 
     $footer = New-Object System.Windows.Forms.Label

@@ -333,13 +333,37 @@ function Reset-SystemDnsIfNeeded {
 
 function Invoke-AmfetaminCleanup {
     if (-not (Test-IsAdmin)) { throw 'Yonetici yetkisi gerekli' }
-    Stop-Amfetamin | Out-Null
+
+    $messages = @()
+
+    $messages += Stop-Amfetamin
+    Stop-LegacyEngine | Out-Null
+
     if (Test-Path $Script:EngineExe) {
-        & $Script:EngineExe cleanup 2>&1 | Out-Null
+        try {
+            & $Script:EngineExe cleanup 2>&1 | Out-Null
+            $messages += 'Motor route/DNS ayarlari geri alindi'
+            Write-LauncherLog 'engine cleanup calistirildi'
+        } catch {
+            $messages += "Motor cleanup uyarisi: $($_.Exception.Message)"
+            Write-LauncherLog "engine cleanup hata: $($_.Exception.Message)"
+        }
+    } else {
+        $messages += 'Motor exe yok (cleanup atlandi)'
     }
+
+    $messages += Unregister-AutoStartTask
     Reset-SystemDnsIfNeeded
-    Write-LauncherLog 'cleanup tamamlandi'
-    return 'DNS ve route ayarlari geri alindi'
+    $messages += 'Sistem DNS kontrol edildi'
+
+    $batchPath = Join-Path $BinDir 'start-amfetamin-visible.cmd'
+    if (Test-Path $batchPath) {
+        Remove-Item $batchPath -Force -ErrorAction SilentlyContinue
+        $messages += 'Gecici baslatma scripti silindi'
+    }
+
+    Write-LauncherLog 'tam temizlik tamamlandi'
+    return ($messages -join "`n")
 }
 
 function Get-TaskUserId {
@@ -414,11 +438,8 @@ function Install-ToDevice {
 }
 
 function Uninstall-FromDevice {
-    Stop-Amfetamin | Out-Null
-    Invoke-AmfetaminCleanup | Out-Null
-    Unregister-AutoStartTask | Out-Null
-    Reset-SystemDnsIfNeeded
-    return 'Cihazdan kaldirildi. amfetamin durduruldu, otomatik baslatma silindi, DNS geri alindi.'
+    $result = Invoke-AmfetaminCleanup
+    return "Cihazdan kaldirildi.`n$result"
 }
 
 function Install-And-Start {
