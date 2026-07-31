@@ -98,7 +98,7 @@ function Show-AmfetaminSplash {
     $splash.Controls.Add($credit)
 
     $version = New-Object System.Windows.Forms.Label
-    $version.Text = 'gecit engine'
+    $version.Text = 'v1.0.1'
     $version.Font = New-AmfetaminFont 8
     $version.ForeColor = $Script:AmfetaminTheme.TextMuted
     $version.BackColor = $Script:AmfetaminTheme.BgDeep
@@ -109,7 +109,7 @@ function Show-AmfetaminSplash {
     $steps = @(
         @{ pct = 15; msg = 'Yetkiler dogrulaniyor...' },
         @{ pct = 35; msg = 'Npcap kontrol ediliyor...' },
-        @{ pct = 55; msg = 'Gecit durumu okunuyor...' },
+        @{ pct = 55; msg = 'Durum okunuyor...' },
         @{ pct = 75; msg = 'Arayuz hazirlaniyor...' },
         @{ pct = 100; msg = 'Hazir' }
     )
@@ -135,8 +135,8 @@ function Show-AmfetaminSplash {
             $status.Text = $s.msg
             if ($stepIndex -eq 2) {
                 try {
-                    $st = Get-GecitStatus
-                    $status.Text = "Gecit: $(if ($st.GecitRunning) {'aktif'} else {'kapali'})  ·  Npcap: $(if ($st.NpcapInstalled) {'tamam'} else {'eksik'})"
+                    $st = Get-AmfetaminStatus
+                    $status.Text = "amfetamin: $(if ($st.EngineRunning) {'aktif'} else {'kapali'})  ·  Npcap: $(if ($st.NpcapInstalled) {'tamam'} else {'eksik'})"
                 } catch {}
             }
             $stepIndex++
@@ -199,7 +199,7 @@ function Show-AmfetaminInstallWizard {
         $log.AppendText("> Dosyalar hazirlaniyor...`r`n")
         [System.Windows.Forms.Application]::DoEvents()
         try {
-            $log.AppendText("> Gecit indiriliyor / dogrulaniyor...`r`n")
+            $log.AppendText("> amfetamin indiriliyor / dogrulaniyor...`r`n")
             [System.Windows.Forms.Application]::DoEvents()
             $result = & $InstallAction
             $bar.Style = 'Continuous'
@@ -267,12 +267,12 @@ function Show-AmfetaminMainForm {
     $card.Controls.Add($statusLabel)
 
     function Update-Status {
-        $s = Get-GecitStatus
+        $s = Get-AmfetaminStatus
         $dot = { param($ok) if ($ok) { [char]0x25CF } else { [char]0x25CB } }
         $statusLabel.Text = @(
             "$(& $dot $s.NpcapInstalled)  Npcap        $(if ($s.NpcapInstalled) {'kurulu'} else {'eksik'})",
-            "$(& $dot $s.GecitDownloaded)  Gecit        $(if ($s.GecitDownloaded) {'hazir'} else {'indirilecek'})",
-            "$(& $dot $s.GecitRunning)  Durum        $(if ($s.GecitRunning) {'calisiyor'} else {'kapali'})",
+            "$(& $dot $s.EngineDownloaded)  Motor        $(if ($s.EngineDownloaded) {'hazir'} else {'indirilecek'})",
+            "$(& $dot $s.EngineRunning)  Durum        $(if ($s.EngineRunning) {'calisiyor'} else {'kapali'})",
             "$(& $dot $s.AutoStartInstalled)  Otomatik     $(if ($s.AutoStartInstalled) {'her acilista'} else {'kurulmadi'})"
         ) -join "`n"
     }
@@ -307,13 +307,13 @@ function Show-AmfetaminMainForm {
         try { Show-Result (Install-And-Start) } catch { Show-Result $_.Exception.Message }
     }
     Add-Btn 'DURDUR' 328 ([System.Drawing.Color]::FromArgb(55, 55, 75)) {
-        try { Show-Result (Stop-Gecit) } catch { Show-Result $_.Exception.Message }
+        try { Show-Result (Stop-Amfetamin) } catch { Show-Result $_.Exception.Message }
     }
     Add-Btn 'NPCAP KUR' 380 ([System.Drawing.Color]::FromArgb(70, 70, 95)) {
         try { Show-Result (Install-NpcapGui) } catch { Show-Result $_.Exception.Message }
     }
     Add-Btn 'TEMIZLIK' 432 $t.Warning {
-        try { Show-Result (Invoke-GecitCleanup) } catch { Show-Result $_.Exception.Message }
+        try { Show-Result (Invoke-AmfetaminCleanup) } catch { Show-Result $_.Exception.Message }
     } 38
 
     $footer = New-Object System.Windows.Forms.Label
@@ -332,7 +332,7 @@ function Show-AmfetaminMainForm {
     $uninstall.Location = New-Object System.Drawing.Point(340, 480)
     $uninstall.Add_Click({
         $r = [System.Windows.Forms.MessageBox]::Show(
-            'amfetamin kaldirilacak: Gecit durur, otomatik baslatma silinir.',
+            'amfetamin kaldirilacak: servis durur, otomatik baslatma silinir.',
             'amfetamin', 'YesNo', 'Warning')
         if ($r -eq 'Yes') {
             try { Show-Result (Uninstall-FromDevice) } catch { Show-Result $_.Exception.Message }
