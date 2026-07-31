@@ -67,9 +67,9 @@ function Test-IsAdmin {
 function Request-Admin([string[]]$ExtraArgs) {
     if (Test-IsAdmin) { return $true }
     $launcher = Join-Path (Get-ProjectRoot) 'Amfetamin.ps1'
-    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$launcher`"")
+    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$launcher`"")
     if ($ExtraArgs) { $argList += $ExtraArgs }
-    Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
+    Start-Process powershellw.exe -Verb RunAs -ArgumentList $argList
     return $false
 }
 

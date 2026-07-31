@@ -1,3 +1,2 @@
 @echo off
-title amfetamin
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Amfetamin.ps1"
+powershellw.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0Amfetamin.ps1"
