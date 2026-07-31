@@ -71,9 +71,14 @@ function Get-PowerShellPath {
 function Request-Admin([string[]]$ExtraArgs) {
     if (Test-IsAdmin) { return $true }
     $launcher = Join-Path (Get-ProjectRoot) 'Amfetamin.ps1'
-    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$launcher`"")
+    $root = Get-ProjectRoot
+    $argList = @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass',
+        '-WindowStyle', 'Hidden',
+        '-File', $launcher
+    )
     if ($ExtraArgs) { $argList += $ExtraArgs }
-    Start-Process (Get-PowerShellPath) -Verb RunAs -ArgumentList $argList
+    Start-Process -FilePath (Get-PowerShellPath) -Verb RunAs -WorkingDirectory $root -ArgumentList $argList
     return $false
 }
 
