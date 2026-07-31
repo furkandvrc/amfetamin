@@ -10,8 +10,12 @@ Discord ve benzeri servislerde DPI engelini asmak icin tasarlandi. Npcap'i otoma
 
 1. [Releases](https://github.com/furkandvrc/amfetamin/releases/latest) sayfasindan **amfetamin.zip** indir
 2. Zip'i ac (ornegin `C:\amfetamin\`)
-3. **Amfetamin.exe** dosyasina cift tikla (UAC: Evet)
+3. **Amfetamin.exe** dosyasina cift tikla (UAC: Evet) — `.ps1` dosyalarina tiklama, Not Defteri acilir
 4. **CIHAZA KUR** butonuna bas
+
+### Sorun teshisi
+
+**diagnose.bat** dosyasina cift tikla (Yonetici izni ver). `diagnose.ps1` degil — o dosya Not Defteri ile acilir.
 
 Npcap yoksa otomatik indirilir ve kurulum penceresi acilir — **Install** de, gerisini amfetamin halleder.
 

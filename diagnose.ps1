@@ -1,5 +1,5 @@
 # amfetamin teshis araci - by furkandvrc
-# Kullanim: Amfetamin.exe klasorunde sag tik -> PowerShell (Yonetici) -> .\diagnose.ps1
+# CALISTIRMA: diagnose.bat dosyasina cift tikla (diagnose.ps1'e tiklama - Not Defteri acilir!)
 # Cikti: Masaustunde amfetamin-diagnose.txt
 
 $ErrorActionPreference = 'Continue'
