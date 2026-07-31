@@ -264,6 +264,10 @@ function Invoke-AmfetaminCleanup {
     return 'DNS ve route ayarlari geri alindi'
 }
 
+function Get-TaskUserId {
+    return [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+}
+
 function Register-AutoStartTask {
     if (-not (Test-IsAdmin)) { throw 'Yonetici yetkisi gerekli' }
     Sync-LauncherToDevice
@@ -274,18 +278,19 @@ function Register-AutoStartTask {
         Unregister-ScheduledTask -TaskName $Script:TaskName -Confirm:$false
     }
 
+    $taskUser = Get-TaskUserId
     $psExe = (Get-Command powershell.exe).Source
     $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Script:ServiceScript`""
     $action = New-ScheduledTaskAction -Execute $psExe -Argument $arg -WorkingDirectory $InstallRoot
-    $triggerLogon = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+    $triggerLogon = New-ScheduledTaskTrigger -AtLogOn -User $taskUser
     $triggerBoot = New-ScheduledTaskTrigger -AtStartup
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
         -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
-    $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest -LogonType Interactive
+    $principal = New-ScheduledTaskPrincipal -UserId $taskUser -RunLevel Highest -LogonType Interactive
 
     Register-ScheduledTask -TaskName $Script:TaskName -Action $action -Trigger @($triggerLogon, $triggerBoot) `
-        -Settings $settings -Principal $principal -Description 'amfetamin — otomatik baslatma' | Out-Null
-    Write-LauncherLog 'Zamanlanmis gorev olusturuldu'
+        -Settings $settings -Principal $principal -Description 'amfetamin otomatik baslatma' | Out-Null
+    Write-LauncherLog "Zamanlanmis gorev olusturuldu ($taskUser)"
 }
 
 function Unregister-AutoStartTask {

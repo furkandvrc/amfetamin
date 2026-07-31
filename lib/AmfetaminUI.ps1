@@ -98,7 +98,7 @@ function Show-AmfetaminSplash {
     $splash.Controls.Add($credit)
 
     $version = New-Object System.Windows.Forms.Label
-    $version.Text = 'v1.1.1'
+    $version.Text = 'v1.1.2'
     $version.Font = New-AmfetaminFont 8
     $version.ForeColor = $Script:AmfetaminTheme.TextMuted
     $version.BackColor = $Script:AmfetaminTheme.BgDeep
@@ -147,7 +147,7 @@ function Show-AmfetaminInstallWizard {
     param([scriptblock]$InstallAction)
 
     $wiz = New-Object System.Windows.Forms.Form
-    Set-AmfetaminFormStyle $wiz 'amfetamin — Kurulum'
+    Set-AmfetaminFormStyle $wiz 'amfetamin - Kurulum'
     $wiz.Size = New-Object System.Drawing.Size(480, 320)
 
     $hdr = New-Object System.Windows.Forms.Label
