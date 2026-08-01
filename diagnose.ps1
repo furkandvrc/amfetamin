@@ -48,7 +48,7 @@ try {
     Write-DiagLine "  wpcap.dll: $(Test-Path 'C:\Windows\System32\Npcap\wpcap.dll')" $lines
 
     Write-DiagLine '--- Process ---' $lines
-    $procs = Get-Process -Name amfetamin, gecit -ErrorAction SilentlyContinue
+    $procs = Get-Process -Name amfetamin -ErrorAction SilentlyContinue
     if ($procs) {
         foreach ($proc in $procs) {
             Write-DiagLine "  $($proc.Name) PID=$($proc.Id)" $lines

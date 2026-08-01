@@ -2,45 +2,40 @@
 
 **by furkandvrc**
 
-Windows icin tek tik DPI bypass araci. WinDivert kullanmaz — Rust / EAC ile uyumludur.
+Windows icin modern DPI bypass araci. WinDivert kullanmaz — Rust / EAC uyumludur.
 
-Discord ve benzeri servislerde DPI engelini asmak icin tasarlandi. Npcap'i otomatik indirir/kurar ve **cihaza kurarak her acilista otomatik calistirir**.
+## Ozellikler (v2.0)
+
+- Modern sekmeli arayuz (Panel, Loglar, Ayarlar, Teshis, Hakkinda)
+- Gelismis log sistemi (app, errors, audit, motor loglari)
+- Canli log izleme ve ZIP disa aktarma
+- Otomatik TTL ayari (discord.com test)
+- Baglanti testi, ZeroTier uyarisi
+- Sistem tepsisi (minimize = tepsiye)
+- Guncelleme kontrolu
+- Entegre teshis araci
 
 ## Indir ve kur
 
-1. [Releases](https://github.com/furkandvrc/amfetamin/releases/latest) sayfasindan **amfetamin.zip** indir
-2. Zip'i ac (ornegin `C:\amfetamin\`)
-3. **Amfetamin.exe** dosyasina cift tikla (UAC: Evet) — `.ps1` dosyalarina tiklama, Not Defteri acilir
-4. **CIHAZA KUR** butonuna bas
+1. [Releases](https://github.com/furkandvrc/amfetamin/releases/latest) → **amfetamin.zip**
+2. Zip'i ac
+3. **Amfetamin.exe** → cift tik (UAC: Evet)
+4. **Panel** sekmesinde **CIHAZA KUR**
 
 ### Sorun teshisi
 
-**diagnose.bat** dosyasina cift tikla (Yonetici izni ver). `diagnose.ps1` degil — o dosya Not Defteri ile acilir.
-
-Npcap yoksa otomatik indirilir ve kurulum penceresi acilir — **Install** de, gerisini amfetamin halleder.
-
-Bundan sonra bilgisayar her acildiginda amfetamin arka planda otomatik baslar.
-
-## Butonlar
-
-| Buton | Ne yapar |
-|-------|----------|
-| **Cihaza Kur** | Npcap + motor kur, otomatik baslatma olustur, simdi baslat |
-| **Simdi Baslat** | Sadece simdi calistir (Npcap yoksa once kurar) |
-| **Durdur** | amfetamin process'ini kapat |
-| **Npcap Kur** | Npcap'i yeniden kur |
-| **Temizlik** | DNS/route ayarlarini geri al |
-| **Cihazdan Kaldir** | Otomatik baslatmayi sil + durdur + temizlik |
+Uygulama icinde **Teshis** sekmesi veya **diagnose.bat** (Disaridan).
 
 ## Dosya konumlari
 
-Kurulum sonrasi:
-
 ```
 %LOCALAPPDATA%\Amfetamin\
-  bin\amfetamin.exe
+  bin\amfetamin.exe      (motor)
   lib\
   logs\
+    app.log
+    errors.log
+    audit.log
   config.json
 ```
 

@@ -10,14 +10,13 @@ $Script:EngineExe = Join-Path $BinDir 'amfetamin.exe'
 $Script:NpcapInstaller = Join-Path $BinDir 'npcap-installer.exe'
 $Script:ConfigPath = Join-Path $InstallRoot 'config.json'
 $Script:ServiceScript = Join-Path $LibDir 'run-amfetamin-service.ps1'
-$Script:RunLog = Join-Path $LogDir 'amfetamin-run.log'
-$Script:LauncherLog = Join-Path $LogDir 'launcher.log'
-$Script:ServiceLog = Join-Path $LogDir 'service.log'
 
-# Motor indirme (v0.1.4)
-$Script:EngineVersion = 'v0.1.4'
-$Script:EngineReleaseBase = 'https://github.com/boratanrikulu/gecit/releases/download'
-$Script:EngineRemoteAsset = 'gecit-windows-amd64.exe'
+. (Join-Path $PSScriptRoot 'AmfetaminLogger.ps1')
+
+# Motor indirme (amfetamin engine v0.1.4)
+$Script:EngineVersion = 'engine-v0.1.4'
+$Script:EngineReleaseBase = 'https://github.com/furkandvrc/amfetamin/releases/download'
+$Script:EngineRemoteAsset = 'amfetamin-engine.exe'
 $Script:EngineChecksumFile = 'checksums.txt'
 
 function Get-ProjectRoot {
@@ -64,6 +63,7 @@ function Set-ConfigValues {
         }
         $json | ConvertTo-Json -Depth 6 | Set-Content $path -Encoding UTF8
     }
+    Write-AmfetaminLog -Message "Config guncellendi: $($Values.Keys -join ', ')" -Level INFO -Audit
 }
 
 function Test-ShouldAutoTuneFakeTtl {
@@ -107,6 +107,8 @@ function Test-BypassTargetReachable {
 }
 
 function Invoke-FakeTtlAutoTune {
+    param([scriptblock]$Progress = $null)
+
     $cfg = Get-Config
     $testUrl = 'https://discord.com'
     if ($cfg.PSObject.Properties.Name -contains 'autoTuneUrl' -and $cfg.autoTuneUrl) {
@@ -122,6 +124,7 @@ function Invoke-FakeTtlAutoTune {
 
     $bestTtl = $null
     foreach ($ttl in $candidates) {
+        if ($Progress) { & $Progress "TTL deneniyor: $ttl" }
         Write-LauncherLog "TTL deneniyor: $ttl"
         Stop-Amfetamin | Out-Null
         Start-Sleep -Seconds 1
@@ -134,9 +137,11 @@ function Invoke-FakeTtlAutoTune {
         if (Test-BypassTargetReachable -Url $testUrl -TimeoutSec $timeout) {
             $bestTtl = $ttl
             Write-LauncherLog "TTL $ttl calisti ($testUrl OK)"
+            if ($Progress) { & $Progress "TTL $ttl basarili!" }
             break
         }
         Write-LauncherLog "TTL $ttl timeout ($testUrl)"
+        if ($Progress) { & $Progress "TTL $ttl basarisiz, sonraki..." }
     }
 
     if (-not $bestTtl) {
@@ -160,22 +165,15 @@ function Invoke-FakeTtlAutoTune {
     return "Otomatik TTL ayari tamamlandi (fakeTtl=$bestTtl) ama $testUrl hala yanit vermiyor — ZeroTier/VPN ve tarayici QUIC kontrol edin"
 }
 
+function Invoke-ManualTtlRetune {
+    Set-ConfigValues @{ autoTuneDone = $false }
+    return Invoke-FakeTtlAutoTune
+}
+
 function Ensure-Dirs {
     foreach ($d in @($InstallRoot, $BinDir, $LogDir, $LibDir)) {
         if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
     }
-}
-
-function Write-LauncherLog([string]$Message) {
-    Ensure-Dirs
-    $line = "[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
-    Add-Content -Path $Script:LauncherLog -Value $line -Encoding UTF8
-}
-
-function Write-ServiceLog([string]$Message) {
-    Ensure-Dirs
-    $line = "[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
-    Add-Content -Path $Script:ServiceLog -Value $line -Encoding UTF8
 }
 
 function Test-IsAdmin {
@@ -199,6 +197,7 @@ function Get-LauncherPath {
 
 function Request-Admin([string[]]$ExtraArgs) {
     if (Test-IsAdmin) { return $true }
+    Write-AmfetaminLog -Message 'Yonetici yetkisi isteniyor' -Level INFO -Audit
     $launcher = Get-LauncherPath
     $root = Get-ProjectRoot
     if ($launcher -like '*.exe') {
@@ -223,9 +222,13 @@ function Test-NpcapInstalled {
 }
 
 function Stop-LegacyEngine {
-    Get-Process -Name 'gecit' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    $legacy = Join-Path $BinDir 'gecit.exe'
-    if (Test-Path $legacy) { Remove-Item $legacy -Force -ErrorAction SilentlyContinue }
+    foreach ($legacyName in @('amfetamin-old')) {
+        Get-Process -Name $legacyName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+    foreach ($legacyFile in @('engine-old.exe')) {
+        $p = Join-Path $BinDir $legacyFile
+        if (Test-Path $p) { Remove-Item $p -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 function Test-AmfetaminRunning {
@@ -237,18 +240,37 @@ function Test-AutoStartInstalled {
     return $null -ne $task
 }
 
+function Get-AmfetaminProcessInfo {
+    $proc = Get-Process -Name 'amfetamin' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $proc) { return $null }
+    return [PSCustomObject]@{
+        Pid = $proc.Id
+        StartTime = $proc.StartTime
+        MemoryMb = [math]::Round($proc.WorkingSet64 / 1MB, 1)
+    }
+}
+
 function Get-AmfetaminStatus {
+    $cfg = $null
+    try { $cfg = Get-Config } catch {}
+    $proc = Get-AmfetaminProcessInfo
     [PSCustomObject]@{
         NpcapInstalled = Test-NpcapInstalled
         EngineDownloaded = Test-Path $Script:EngineExe
         EngineRunning = Test-AmfetaminRunning
         AutoStartInstalled = Test-AutoStartInstalled
         InstallRoot = $Script:InstallRoot
+        FakeTtl = if ($cfg) { $cfg.fakeTtl } else { $null }
+        AutoTuneDone = if ($cfg) { $cfg.autoTuneDone } else { $false }
+        Version = if ($cfg) { $cfg.version } else { '?' }
+        Process = $proc
+        ZeroTierRunning = (Test-ZeroTierRunning)
     }
 }
 
 function Invoke-DownloadFile([string]$Url, [string]$Dest) {
     Write-LauncherLog "Indiriliyor: $Url"
+    Write-AmfetaminLog -Message "Indiriliyor: $Url" -Level INFO
     Invoke-WebRequest -Uri $Url -OutFile $Dest -UseBasicParsing
 }
 
@@ -269,7 +291,8 @@ function Install-EngineBinary {
         throw "SHA256 uyusmadi! Beklenen: $expectedHash Alinan: $actualHash"
     }
     Move-Item $tmp $Script:EngineExe -Force
-    Write-LauncherLog 'amfetamin.exe indirildi ve dogrulandi'
+    Write-LauncherLog 'amfetamin motor indirildi ve dogrulandi'
+    Write-AmfetaminLog -Message 'Motor binary dogrulandi' -Level INFO -Audit
 }
 
 function Ensure-EngineBinary {
@@ -281,9 +304,12 @@ function Sync-LauncherToDevice {
     Ensure-Dirs
     $projectRoot = Get-ProjectRoot
     Copy-Item (Join-Path $projectRoot 'config.json') $Script:ConfigPath -Force
-    Copy-Item (Join-Path $projectRoot 'lib\AmfetaminCore.ps1') (Join-Path $LibDir 'AmfetaminCore.ps1') -Force
-    Copy-Item (Join-Path $projectRoot 'lib\run-amfetamin-service.ps1') $Script:ServiceScript -Force
-    Copy-Item (Join-Path $projectRoot 'lib\AmfetaminUI.ps1') (Join-Path $LibDir 'AmfetaminUI.ps1') -Force -ErrorAction SilentlyContinue
+    foreach ($libFile in @('AmfetaminCore.ps1', 'AmfetaminLogger.ps1', 'AmfetaminDiagnostics.ps1', 'AmfetaminUI.ps1', 'run-amfetamin-service.ps1')) {
+        $src = Join-Path $projectRoot "lib\$libFile"
+        if (Test-Path $src) {
+            Copy-Item $src (Join-Path $LibDir $libFile) -Force
+        }
+    }
     foreach ($icoName in @('amfetamin.ico', (Join-Path 'assets' 'amfetamin.ico'))) {
         $icoSrc = Join-Path $projectRoot $icoName
         if (Test-Path $icoSrc) {
@@ -305,6 +331,7 @@ function Install-NpcapAuto {
     }
 
     Write-LauncherLog 'Npcap kurulumu baslatiliyor'
+    Write-AmfetaminLog -Message 'Npcap kurulumu baslatiliyor' -Level INFO -Audit
     $installArgs = '/winpcap_mode=yes'
     Start-Process -FilePath $Script:NpcapInstaller -ArgumentList $installArgs -Verb RunAs -Wait | Out-Null
     Start-Sleep -Seconds 2
@@ -350,8 +377,7 @@ function Invoke-EngineWarmup {
         'https://www.google.com/generate_204',
         'https://discord.com',
         'https://gateway.discord.gg',
-        'https://cdn.discordapp.com',
-        'https://www.pornhub.com'
+        'https://cdn.discordapp.com'
     )
     if ($cfg.PSObject.Properties['warmupUrls'] -and $cfg.warmupUrls) {
         $urls = @($cfg.warmupUrls)
@@ -399,6 +425,7 @@ function Start-AmfetaminHidden {
     Start-Sleep -Seconds 2
     if (-not $proc.HasExited -and (Test-AmfetaminRunning)) {
         Write-LauncherLog "amfetamin arka planda baslatildi (PID $($proc.Id))"
+        Write-AmfetaminLog -Message "Motor baslatildi PID=$($proc.Id)" -Level INFO -Audit
         if (-not $SkipWarmup) { Invoke-EngineWarmup }
         return 'amfetamin arka planda baslatildi'
     }
@@ -407,6 +434,7 @@ function Start-AmfetaminHidden {
         return 'amfetamin calisiyor'
     }
     $hint = if (Test-Path $Script:RunLog) { Get-Content $Script:RunLog -Raw -ErrorAction SilentlyContinue } else { '' }
+    Write-AmfetaminError -Message 'Motor baslatilamadi' -Context 'Start-AmfetaminHidden'
     throw "amfetamin baslatilamadi. logs\amfetamin-run.log dosyasina bakin.`n$hint"
 }
 
@@ -421,7 +449,6 @@ function Start-AmfetaminVisible {
     $verbose = $true
     if ($cfg.PSObject.Properties['engineVerbose'] -and $cfg.engineVerbose -eq $false) { $verbose = $false }
     $upstream = [string]$cfg.dohUpstream
-    $argLine = Get-EngineRunArgsLine -VerboseLog:$verbose
     $batch = @"
 @echo off
 cd /d "$BinDir"
@@ -438,6 +465,7 @@ pause
     Set-Content -Path $batchPath -Value $batch -Encoding ASCII
     Start-Process cmd.exe -ArgumentList "/c `"$batchPath`"" -Verb RunAs
     Start-Sleep -Seconds 2
+    Write-AmfetaminLog -Message 'Motor gorunur modda baslatildi' -Level INFO -Audit
     return 'amfetamin konsol penceresi acildi'
 }
 
@@ -449,6 +477,7 @@ function Stop-Amfetamin {
     }
     $procs | Stop-Process -Force
     Write-LauncherLog 'amfetamin durduruldu'
+    Write-AmfetaminLog -Message 'Motor durduruldu' -Level INFO -Audit
     return 'amfetamin durduruldu'
 }
 
@@ -465,6 +494,7 @@ function Invoke-AmfetaminCleanup {
     if (-not (Test-IsAdmin)) { throw 'Yonetici yetkisi gerekli' }
 
     $messages = @()
+    Write-AmfetaminLog -Message 'Tam temizlik basladi' -Level WARN -Audit
 
     $messages += Stop-Amfetamin
     Stop-LegacyEngine | Out-Null
@@ -476,7 +506,7 @@ function Invoke-AmfetaminCleanup {
             Write-LauncherLog 'engine cleanup calistirildi'
         } catch {
             $messages += "Motor cleanup uyarisi: $($_.Exception.Message)"
-            Write-LauncherLog "engine cleanup hata: $($_.Exception.Message)"
+            Write-AmfetaminError -Message 'engine cleanup hata' -Exception $_.Exception
         }
     } else {
         $messages += 'Motor exe yok (cleanup atlandi)'
@@ -527,6 +557,7 @@ function Register-AutoStartTask {
     Register-ScheduledTask -TaskName $Script:TaskName -Action $action -Trigger @($triggerLogon, $triggerBoot) `
         -Settings $settings -Principal $principal -Description 'amfetamin otomatik baslatma' | Out-Null
     Write-LauncherLog "Zamanlanmis gorev olusturuldu ($taskUser)"
+    Write-AmfetaminLog -Message "Otomatik baslatma gorevi olusturuldu ($taskUser)" -Level INFO -Audit
 }
 
 function Unregister-AutoStartTask {
@@ -535,26 +566,34 @@ function Unregister-AutoStartTask {
     if ($existing) {
         Unregister-ScheduledTask -TaskName $Script:TaskName -Confirm:$false
         Write-LauncherLog 'Zamanlanmis gorev kaldirildi'
+        Write-AmfetaminLog -Message 'Otomatik baslatma kaldirildi' -Level INFO -Audit
         return 'Otomatik baslatma kaldirildi'
     }
     return 'Otomatik baslatma zaten kurulu degil'
 }
 
 function Install-ToDevice {
+    param([scriptblock]$Progress = $null)
+
     if (-not (Test-IsAdmin)) { throw 'Yonetici yetkisi gerekli' }
 
+    Write-AmfetaminLog -Message 'Cihaza kurulum basladi' -Level INFO -Audit
     $messages = @()
     if (-not (Test-NpcapInstalled)) {
+        if ($Progress) { & $Progress 'Npcap kuruluyor...' }
         $npcapMsg = Install-NpcapAuto
         if ($npcapMsg) { $messages += $npcapMsg }
     }
 
+    if ($Progress) { & $Progress 'Dosyalar senkronize ediliyor...' }
     Sync-LauncherToDevice
+    if ($Progress) { & $Progress 'Motor indiriliyor...' }
     Ensure-EngineBinary
     Register-AutoStartTask
 
     if (Test-ShouldAutoTuneFakeTtl) {
-        $messages += Invoke-FakeTtlAutoTune
+        if ($Progress) { & $Progress 'TTL otomatik ayarlaniyor...' }
+        $messages += Invoke-FakeTtlAutoTune -Progress $Progress
     } else {
         Start-AmfetaminHidden | Out-Null
     }
@@ -578,11 +617,14 @@ function Install-ToDevice {
         '- Ayarlar -> Guvenli DNS -> Kapali',
         '- ZeroTier/VPN kapali olsun'
     ) | Where-Object { $_ }
+
+    Write-AmfetaminLog -Message 'Cihaza kurulum tamamlandi' -Level INFO -Audit
     return ($messages -join "`n")
 }
 
 function Uninstall-FromDevice {
     $result = Invoke-AmfetaminCleanup
+    Write-AmfetaminLog -Message 'Cihazdan kaldirildi' -Level WARN -Audit
     return "Cihazdan kaldirildi.`n$result"
 }
 
@@ -593,3 +635,26 @@ function Install-And-Start {
     Sync-LauncherToDevice
     Start-AmfetaminVisible
 }
+
+function Save-AmfetaminSettings {
+    param(
+        [string]$DohUpstream,
+        [int]$FakeTtl,
+        [bool]$AutoTuneTtl,
+        [bool]$Warmup,
+        [bool]$EngineVerbose
+    )
+    $vals = @{}
+    if ($DohUpstream) { $vals.dohUpstream = $DohUpstream }
+    if ($FakeTtl -gt 0) { $vals.fakeTtl = $FakeTtl }
+    if ($null -ne $AutoTuneTtl) { $vals.autoTuneTtl = $AutoTuneTtl }
+    if ($null -ne $Warmup) { $vals.warmup = $Warmup }
+    if ($null -ne $EngineVerbose) { $vals.engineVerbose = $EngineVerbose }
+    Set-ConfigValues $vals
+    Sync-LauncherToDevice
+    return 'Ayarlar kaydedildi'
+}
+
+. (Join-Path $PSScriptRoot 'AmfetaminDiagnostics.ps1')
+
+Write-AmfetaminLog -Message 'AmfetaminCore yuklendi' -Level DEBUG

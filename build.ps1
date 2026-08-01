@@ -67,9 +67,15 @@ $ui = Get-Content (Join-Path $root 'lib\AmfetaminUI.ps1') -Raw
 $main = @'
 $ErrorActionPreference = 'Stop'
 try {
+    Write-AmfetaminLog -Message 'Amfetamin.exe baslatildi' -Level INFO -Audit
+    if (-not (Test-IsAdmin)) {
+        Request-Admin | Out-Null
+        exit 0
+    }
     Show-AmfetaminSplash
     Show-AmfetaminMainForm
 } catch {
+    Write-AmfetaminError -Message 'Kritik hata' -Exception $_.Exception
     try {
         Add-Type -AssemblyName System.Windows.Forms
         [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'amfetamin', 'OK', 'Error')
@@ -81,7 +87,7 @@ try {
 }
 '@
 
-@('# amfetamin bundle - by furkandvrc', $core, $ui, $main) -join "`r`n" | Set-Content $bundle -Encoding ASCII
+@('# amfetamin v2 bundle - by furkandvrc', $core, $ui, $main) -join "`r`n" | Set-Content $bundle -Encoding UTF8
 
 $scriptText = Get-Content $bundle -Raw -Encoding UTF8
 $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($scriptText))
@@ -130,10 +136,6 @@ static class AmfetaminLauncher
             using (var proc = Process.Start(psi))
             {
                 proc.WaitForExit();
-                if (proc.ExitCode != 0)
-                {
-                    MessageBox.Show("amfetamin baslatilamadi (kod: " + proc.ExitCode + ")", "amfetamin", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
                 return proc.ExitCode;
             }
         }
