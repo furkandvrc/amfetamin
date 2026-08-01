@@ -44,6 +44,122 @@ function Get-Config {
     throw 'config.json bulunamadi'
 }
 
+function Set-ConfigValues {
+    param([hashtable]$Values)
+    Ensure-Dirs
+    $paths = @(
+        (Join-Path (Get-ProjectRoot) 'config.json'),
+        $Script:ConfigPath
+    ) | Select-Object -Unique
+
+    foreach ($path in $paths) {
+        if (-not (Test-Path $path)) { continue }
+        $json = Get-Content $path -Raw | ConvertFrom-Json
+        foreach ($key in $Values.Keys) {
+            if ($json.PSObject.Properties.Name -contains $key) {
+                $json.$key = $Values[$key]
+            } else {
+                $json | Add-Member -NotePropertyName $key -NotePropertyValue $Values[$key] -Force
+            }
+        }
+        $json | ConvertTo-Json -Depth 6 | Set-Content $path -Encoding UTF8
+    }
+}
+
+function Test-ShouldAutoTuneFakeTtl {
+    $cfg = Get-Config
+    if ($cfg.PSObject.Properties.Name -contains 'autoTuneTtl' -and $cfg.autoTuneTtl -eq $false) {
+        return $false
+    }
+    if ($cfg.PSObject.Properties.Name -contains 'autoTuneDone' -and $cfg.autoTuneDone -eq $true) {
+        return $false
+    }
+    return $true
+}
+
+function Get-FakeTtlCandidates {
+    $cfg = Get-Config
+    if ($cfg.PSObject.Properties.Name -contains 'fakeTtlCandidates' -and $cfg.fakeTtlCandidates) {
+        return @($cfg.fakeTtlCandidates | ForEach-Object { [int]$_ })
+    }
+    return @(6, 8, 10, 12, 14)
+}
+
+function Test-BypassTargetReachable {
+    param(
+        [string]$Url = 'https://discord.com',
+        [int]$TimeoutSec = 15
+    )
+    foreach ($method in @('Head', 'Get')) {
+        try {
+            $params = @{
+                Uri             = $Url
+                UseBasicParsing = $true
+                TimeoutSec      = $TimeoutSec
+                ErrorAction     = 'Stop'
+            }
+            if ($method -eq 'Head') { $params.Method = 'Head' }
+            $r = Invoke-WebRequest @params
+            if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 400) { return $true }
+        } catch {}
+    }
+    return $false
+}
+
+function Invoke-FakeTtlAutoTune {
+    $cfg = Get-Config
+    $testUrl = 'https://discord.com'
+    if ($cfg.PSObject.Properties.Name -contains 'autoTuneUrl' -and $cfg.autoTuneUrl) {
+        $testUrl = [string]$cfg.autoTuneUrl
+    }
+    $timeout = 15
+    if ($cfg.PSObject.Properties.Name -contains 'autoTuneTimeoutSec' -and $cfg.autoTuneTimeoutSec) {
+        $timeout = [int]$cfg.autoTuneTimeoutSec
+    }
+
+    $candidates = Get-FakeTtlCandidates
+    Write-LauncherLog "TTL otomatik ayar basladi ($testUrl, adaylar: $($candidates -join ','))"
+
+    $bestTtl = $null
+    foreach ($ttl in $candidates) {
+        Write-LauncherLog "TTL deneniyor: $ttl"
+        Stop-Amfetamin | Out-Null
+        Start-Sleep -Seconds 1
+        Start-AmfetaminHidden -FakeTtlOverride $ttl -SkipWarmup | Out-Null
+        if (-not (Test-AmfetaminRunning)) {
+            Write-LauncherLog "TTL $ttl ile motor baslamadi"
+            continue
+        }
+        Start-Sleep -Seconds 3
+        if (Test-BypassTargetReachable -Url $testUrl -TimeoutSec $timeout) {
+            $bestTtl = $ttl
+            Write-LauncherLog "TTL $ttl calisti ($testUrl OK)"
+            break
+        }
+        Write-LauncherLog "TTL $ttl timeout ($testUrl)"
+    }
+
+    if (-not $bestTtl) {
+        $bestTtl = if ($cfg.fakeTtl) { [int]$cfg.fakeTtl } else { 8 }
+        Write-LauncherLog "Uygun TTL bulunamadi, varsayilan kullaniliyor: $bestTtl"
+        Stop-Amfetamin | Out-Null
+        Start-Sleep -Seconds 1
+        Start-AmfetaminHidden -FakeTtlOverride $bestTtl -SkipWarmup | Out-Null
+    }
+
+    Set-ConfigValues @{
+        fakeTtl      = $bestTtl
+        autoTuneDone = $true
+    }
+    Sync-LauncherToDevice
+    Invoke-EngineWarmup
+
+    if (Test-BypassTargetReachable -Url $testUrl -TimeoutSec $timeout) {
+        return "Otomatik TTL ayari: fakeTtl=$bestTtl ($testUrl OK)"
+    }
+    return "Otomatik TTL ayari tamamlandi (fakeTtl=$bestTtl) ama $testUrl hala yanit vermiyor — ZeroTier/VPN ve tarayici QUIC kontrol edin"
+}
+
 function Ensure-Dirs {
     foreach ($d in @($InstallRoot, $BinDir, $LogDir, $LibDir)) {
         if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
@@ -207,12 +323,16 @@ function Install-NpcapGui {
 }
 
 function Get-EngineRunArgs {
-    param([switch]$VerboseLog)
+    param(
+        [switch]$VerboseLog,
+        [int]$FakeTtlOverride = 0
+    )
     $cfg = Get-Config
     $parts = @('run', '--doh-upstream', [string]$cfg.dohUpstream)
-    if ($cfg.PSObject.Properties['fakeTtl'] -and $cfg.fakeTtl) {
-        $parts += @('--fake-ttl', [string]$cfg.fakeTtl)
-    }
+    $ttl = if ($FakeTtlOverride -gt 0) { $FakeTtlOverride }
+           elseif ($cfg.PSObject.Properties.Name -contains 'fakeTtl' -and $cfg.fakeTtl) { [int]$cfg.fakeTtl }
+           else { 0 }
+    if ($ttl -gt 0) { $parts += @('--fake-ttl', [string]$ttl) }
     if ($VerboseLog) { $parts += '-v' }
     return $parts
 }
@@ -257,23 +377,33 @@ function Invoke-EngineWarmup {
 }
 
 function Start-AmfetaminHidden {
+    param(
+        [int]$FakeTtlOverride = 0,
+        [switch]$SkipWarmup
+    )
     if (-not (Test-IsAdmin)) { throw 'Yonetici yetkisi gerekli' }
     if (-not (Test-NpcapInstalled)) { throw 'Npcap kurulu degil' }
     Ensure-EngineBinary
     Stop-LegacyEngine
-    if (Test-AmfetaminRunning) { return 'amfetamin zaten calisiyor' }
+    if (Test-AmfetaminRunning) {
+        if ($FakeTtlOverride -le 0) { return 'amfetamin zaten calisiyor' }
+        Stop-Amfetamin | Out-Null
+        Start-Sleep -Seconds 1
+    }
 
-    $args = Get-EngineRunArgs
+    $argParams = @{}
+    if ($FakeTtlOverride -gt 0) { $argParams.FakeTtlOverride = $FakeTtlOverride }
+    $args = Get-EngineRunArgs @argParams
     $proc = Start-Process -FilePath $Script:EngineExe -ArgumentList $args -WorkingDirectory $BinDir `
         -WindowStyle Hidden -PassThru -RedirectStandardError $Script:RunLog
     Start-Sleep -Seconds 2
     if (-not $proc.HasExited -and (Test-AmfetaminRunning)) {
         Write-LauncherLog "amfetamin arka planda baslatildi (PID $($proc.Id))"
-        Invoke-EngineWarmup
+        if (-not $SkipWarmup) { Invoke-EngineWarmup }
         return 'amfetamin arka planda baslatildi'
     }
     if (Test-AmfetaminRunning) {
-        Invoke-EngineWarmup
+        if (-not $SkipWarmup) { Invoke-EngineWarmup }
         return 'amfetamin calisiyor'
     }
     $hint = if (Test-Path $Script:RunLog) { Get-Content $Script:RunLog -Raw -ErrorAction SilentlyContinue } else { '' }
@@ -362,6 +492,10 @@ function Invoke-AmfetaminCleanup {
         $messages += 'Gecici baslatma scripti silindi'
     }
 
+    try {
+        Set-ConfigValues @{ autoTuneDone = $false }
+    } catch {}
+
     Write-LauncherLog 'tam temizlik tamamlandi'
     return ($messages -join "`n")
 }
@@ -418,22 +552,32 @@ function Install-ToDevice {
     Sync-LauncherToDevice
     Ensure-EngineBinary
     Register-AutoStartTask
-    Start-AmfetaminHidden | Out-Null
+
+    if (Test-ShouldAutoTuneFakeTtl) {
+        $messages += Invoke-FakeTtlAutoTune
+    } else {
+        Start-AmfetaminHidden | Out-Null
+    }
+
     if (-not (Test-AmfetaminRunning)) {
         throw 'Kurulum kaydedildi ama motor baslatilamadi. SIMDI BASLAT ile tekrar deneyin.'
     }
+
+    $cfg = Get-Config
+    $ttlInfo = if ($cfg.fakeTtl) { "fakeTtl=$($cfg.fakeTtl)" } else { '' }
 
     $messages += @(
         'Cihaza kurulum tamamlandi!',
         '- Her acilista amfetamin otomatik baslar',
         '- Simdi arka planda calisiyor',
         "- Konum: $InstallRoot",
+        $(if ($ttlInfo) { "- TTL ayari: $ttlInfo" }),
         '',
         'Discord web acilmiyorsa tarayicida:',
         '- Chrome/Edge: chrome://flags/#enable-quic -> Disabled',
         '- Ayarlar -> Guvenli DNS -> Kapali',
-        '- Sayfayi yenile veya gizli pencere dene'
-    )
+        '- ZeroTier/VPN kapali olsun'
+    ) | Where-Object { $_ }
     return ($messages -join "`n")
 }
 
