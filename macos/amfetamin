@@ -1,0 +1,93 @@
+#!/bin/bash
+# amfetamin macOS CLI
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+if [[ -f "$ROOT/lib/core.sh" ]]; then
+    APP_ROOT="$ROOT"
+elif [[ -f "$ROOT/../lib/core.sh" ]]; then
+    APP_ROOT="$(cd "$ROOT/.." && pwd)"
+else
+    APP_ROOT="$ROOT"
+fi
+export AMFETAMIN_ROOT="$APP_ROOT"
+# shellcheck source=lib/core.sh
+source "$APP_ROOT/lib/core.sh"
+
+usage() {
+    cat <<EOF
+amfetamin macOS — by furkandvrc
+
+$(msg usage_title)
+$(msg usage_install)
+$(msg usage_start)
+$(msg usage_stop)
+$(msg usage_cleanup)
+$(msg usage_status)
+$(msg usage_tune)
+$(msg usage_test)
+$(msg usage_logs)
+$(msg usage_open_logs)
+$(msg usage_diagnose)
+$(msg usage_menubar)
+
+$(msg usage_example)
+EOF
+}
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+    install)
+        install_to_device
+        ;;
+    start)
+        require_root
+        start_engine_hidden 0
+        ;;
+    stop)
+        require_root
+        stop_engine
+        ;;
+    cleanup|clean)
+        full_cleanup
+        ;;
+    status)
+        show_status
+        ;;
+    tune)
+        require_root
+        cfg_set autoTuneDone false
+        auto_tune_ttl
+        ;;
+    test)
+        for url in "https://discord.com" "https://www.google.com/generate_204"; do
+            if test_bypass_reachable "$url" 15; then
+                echo "OK  $url"
+            else
+                echo "FAIL $url"
+            fi
+        done
+        ;;
+    logs)
+        log_show 30
+        ;;
+    open-logs)
+        open "$AMFETAMIN_LOG_DIR" 2>/dev/null || echo "$AMFETAMIN_LOG_DIR"
+        ;;
+    diagnose)
+        bash "$APP_ROOT/diagnose.sh"
+        ;;
+    menubar)
+        install_menubar
+        ;;
+    ""|help|-h|--help)
+        usage
+        ;;
+    *)
+        echo "$(msg unknown_command "$cmd")" >&2
+        usage
+        exit 1
+        ;;
+esac

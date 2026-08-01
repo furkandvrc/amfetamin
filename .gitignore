@@ -1,0 +1,13 @@
+*.log
+bin/
+logs/
+dist/
+build/
+macos/AmfetaminMenuBar/.build/
+macos/Amfetamin.app/
+macos/Amfetamin MenuBar.app/
+macos/amfetamin-diagnose-macos.txt
+Amfetamin.exe
+.amfetamin-run.ps1
+test-install.ps1
+test-install.log

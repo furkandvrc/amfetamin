@@ -1,0 +1,4 @@
+# Shell scripts must use LF on all platforms
+macos/amfetamin text eol=lf
+macos/*.sh text eol=lf
+macos/lib/*.sh text eol=lf
