@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+WIN="$ROOT/windows"
 STAGING="$ROOT/dist/amfetamin-windows-staging"
 ZIP="$ROOT/dist/amfetamin-windows.zip"
 
@@ -16,8 +17,8 @@ write_crlf() {
 rm -rf "$STAGING" "$ZIP"
 mkdir -p "$STAGING/lib"
 
-for name in Amfetamin.ps1 Amfetamin.bat Amfetamin.vbs config.json diagnose.ps1 diagnose.bat LICENSE README.md amfetamin.ico; do
-    src="$ROOT/$name"
+for name in Amfetamin.ps1 Amfetamin.bat Amfetamin.vbs config.json diagnose.ps1 diagnose.bat amfetamin.ico; do
+    src="$WIN/$name"
     [[ -f "$src" ]] || continue
     case "$name" in
         *.ps1|*.bat|*.vbs) write_crlf "$src" "$STAGING/$name" ;;
@@ -25,7 +26,12 @@ for name in Amfetamin.ps1 Amfetamin.bat Amfetamin.vbs config.json diagnose.ps1 d
     esac
 done
 
-for f in "$ROOT/lib/"*.ps1; do
+for name in LICENSE README.md; do
+    src="$ROOT/$name"
+    [[ -f "$src" ]] && cp "$src" "$STAGING/$name"
+done
+
+for f in "$WIN/lib/"*.ps1; do
     [[ -f "$f" ]] || continue
     write_crlf "$f" "$STAGING/lib/$(basename "$f")"
 done

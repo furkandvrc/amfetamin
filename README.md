@@ -31,6 +31,16 @@ sudo bash amfetamin install
 
 Detailed instructions: [macos/README.md](macos/README.md)
 
+## Project layout
+
+```
+amfetamin/
+├── windows/   # Windows desktop UI (PowerShell + exe build)
+├── macos/     # macOS CLI + menu bar app
+├── scripts/   # Release packaging
+└── assets/    # Shared icons
+```
+
 ## Features
 
 - Automatic TTL tuning

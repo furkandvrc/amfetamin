@@ -3,11 +3,14 @@ bin/
 logs/
 dist/
 build/
+windows/build/
+windows/Amfetamin.exe
+windows/Amfetamin.build.exe
+windows/Amfetamin.new.exe
 macos/AmfetaminMenuBar/.build/
 macos/Amfetamin.app/
 macos/Amfetamin MenuBar.app/
 macos/amfetamin-diagnose-macos.txt
-Amfetamin.exe
 .amfetamin-run.ps1
 test-install.ps1
 test-install.log

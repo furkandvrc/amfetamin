@@ -1,9 +1,10 @@
 # amfetamin.exe derleme (csc + gomulu script)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
+$repoRoot = Split-Path $root -Parent
 $buildDir = Join-Path $root 'build'
 $srcDir = Join-Path $root 'src'
-$assetsDir = Join-Path $root 'assets'
+$assetsDir = Join-Path $repoRoot 'assets'
 $bundle = Join-Path $buildDir 'Amfetamin.bundle.ps1'
 $outExe = Join-Path $root 'Amfetamin.exe'
 $icoPath = Join-Path $assetsDir 'amfetamin.ico'
