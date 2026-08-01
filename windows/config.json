@@ -1,11 +1,11 @@
 {
-  "version": "3.1.3",
+  "version": "3.1.4",
   "dohUpstream": "cloudflare",
   "fakeTtl": 8,
   "autoTuneTtl": true,
   "autoTuneDone": false,
   "autoTuneUrl": "https://discord.com",
-  "autoTuneTimeoutSec": 15,
+  "autoTuneTimeoutSec": 10,
   "fakeTtlCandidates": [6, 8, 10, 12, 14],
   "warmup": true,
   "engineVerbose": true,

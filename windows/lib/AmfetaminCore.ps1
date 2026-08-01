@@ -139,24 +139,29 @@ function Invoke-FakeTtlAutoTune {
 
     $bestTtl = $null
     foreach ($ttl in $candidates) {
-        if ($Progress) { & $Progress (T 'ttl_trying' $ttl) }
-        Write-LauncherLog "TTL deneniyor: $ttl"
-        Stop-Amfetamin | Out-Null
-        Start-Sleep -Seconds 1
-        Start-AmfetaminHidden -FakeTtlOverride $ttl -SkipWarmup | Out-Null
-        if (-not (Test-AmfetaminRunning)) {
-            Write-LauncherLog "TTL $ttl ile motor baslamadi"
-            continue
+        try {
+            if ($Progress) { & $Progress (T 'ttl_trying' $ttl) }
+            Write-LauncherLog "TTL deneniyor: $ttl"
+            Stop-Amfetamin | Out-Null
+            Start-Sleep -Seconds 1
+            Start-AmfetaminHidden -FakeTtlOverride $ttl -SkipWarmup | Out-Null
+            if (-not (Test-AmfetaminRunning)) {
+                Write-LauncherLog "TTL $ttl ile motor baslamadi"
+                continue
+            }
+            Start-Sleep -Seconds 3
+            if (Test-BypassTargetReachable -Url $testUrl -TimeoutSec $timeout) {
+                $bestTtl = $ttl
+                Write-LauncherLog "TTL $ttl calisti ($testUrl OK)"
+                if ($Progress) { & $Progress (T 'ttl_success' $ttl) }
+                break
+            }
+            Write-LauncherLog "TTL $ttl timeout ($testUrl)"
+            if ($Progress) { & $Progress (T 'ttl_failed_next' $ttl) }
+        } catch {
+            Write-LauncherLog "TTL $ttl hata: $($_.Exception.Message)"
+            if ($Progress) { & $Progress (T 'ttl_failed_next' $ttl) }
         }
-        Start-Sleep -Seconds 3
-        if (Test-BypassTargetReachable -Url $testUrl -TimeoutSec $timeout) {
-            $bestTtl = $ttl
-            Write-LauncherLog "TTL $ttl calisti ($testUrl OK)"
-            if ($Progress) { & $Progress (T 'ttl_success' $ttl) }
-            break
-        }
-        Write-LauncherLog "TTL $ttl timeout ($testUrl)"
-        if ($Progress) { & $Progress (T 'ttl_failed_next' $ttl) }
     }
 
     if (-not $bestTtl) {
@@ -172,7 +177,7 @@ function Invoke-FakeTtlAutoTune {
         autoTuneDone = $true
     }
     Sync-LauncherToDevice
-    Invoke-EngineWarmup
+    Invoke-EngineWarmup -NonBlocking
 
     if (Test-BypassTargetReachable -Url $testUrl -TimeoutSec $timeout) {
         return (T 'ttl_autotune_success' $bestTtl, $testUrl)
@@ -251,8 +256,12 @@ function Test-AmfetaminRunning {
 }
 
 function Test-AutoStartInstalled {
-    $task = Get-ScheduledTask -TaskName $Script:TaskName -ErrorAction SilentlyContinue
-    return $null -ne $task
+    try {
+        & schtasks.exe /Query /TN $Script:TaskName /FO LIST 2>$null | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    }
 }
 
 function Get-AmfetaminProcessInfo {
@@ -385,6 +394,8 @@ function Get-EngineRunArgsLine {
 }
 
 function Invoke-EngineWarmup {
+    param([switch]$NonBlocking)
+
     $cfg = Get-Config
     if ($cfg.PSObject.Properties['warmup'] -and $cfg.warmup -eq $false) { return }
 
@@ -410,6 +421,11 @@ function Invoke-EngineWarmup {
             }
         }
     } -ArgumentList (,$urls)
+
+    if ($NonBlocking) {
+        Write-LauncherLog 'Motor isinma arka planda baslatildi'
+        return
+    }
 
     $done = Wait-Job $job -Timeout 12
     if ($done) { Receive-Job $job | Out-Null }

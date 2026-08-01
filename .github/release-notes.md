@@ -7,6 +7,16 @@
 
 ---
 
+## v3.1.4
+
+### Windows
+- Fixed UI freezes during install, TTL tuning, and tab navigation (background workers)
+- Faster startup: deferred dashboard load, async file sync, quick auto-start check
+- Discord reachability check no longer blocks the UI thread
+- TTL auto-tune more resilient with per-step error handling
+
+---
+
 ## v3.1.3
 
 ### Windows
