@@ -7,6 +7,16 @@
 
 ---
 
+## v3.1.2
+
+### Windows
+- Fixed `Update-Dashboard` timer/tray scope error and modal `ShowDialog` crashes
+- Main window now comes to foreground after splash (no more hidden UI behind tray)
+- Modern sidebar navigation with rounded cards and buttons
+- Proper Turkish characters in UI strings (ş, ğ, ü, ö, ç, ı)
+
+---
+
 ## v3.1.1
 
 ### All platforms

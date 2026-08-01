@@ -22,8 +22,14 @@ $Script:AmfetaminTheme = @{
 
 $Script:UiState = @{
     StatusTimer = $null
-    LogTimer = $null
-    TrayIcon = $null
+    LogTimer    = $null
+    ToastTimer  = $null
+    TrayIcon    = $null
+    MainForm    = $null
+    Refs        = $null
+    FormReady   = $false
+    NavButtons  = @()
+    ActivePage  = $null
 }
 
 function New-AmfetaminFont($size, $style = 'Regular') {
@@ -55,10 +61,114 @@ function Get-AmfetaminIcon {
 }
 
 function New-AmfetaminRoundedPanel {
-    param([System.Drawing.Color]$BackColor)
+    param(
+        [System.Drawing.Color]$BackColor,
+        [int]$Radius = 10
+    )
     $p = New-Object System.Windows.Forms.Panel
     $p.BackColor = $BackColor
+    if ($Radius -gt 0) {
+        $p.Add_Paint({
+            if ($args.Count -lt 2) { return }
+            $snd = $args[0]; $ea = $args[1]
+            $w = [Math]::Max(1, [int]$snd.ClientSize.Width - 1)
+            $h = [Math]::Max(1, [int]$snd.ClientSize.Height - 1)
+            $r = if ($snd.Tag -and $snd.Tag.Radius) { [int]$snd.Tag.Radius } else { 10 }
+            $ea.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+            $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+            $path.AddArc(0, 0, ($r * 2), ($r * 2), 180, 90)
+            $path.AddArc(($w - $r * 2), 0, ($r * 2), ($r * 2), 270, 90)
+            $path.AddArc(($w - $r * 2), ($h - $r * 2), ($r * 2), ($r * 2), 0, 90)
+            $path.AddArc(0, ($h - $r * 2), ($r * 2), ($r * 2), 90, 90)
+            $path.CloseFigure()
+            $ea.Graphics.FillPath((New-Object System.Drawing.SolidBrush($snd.BackColor)), $path)
+            $path.Dispose()
+        })
+        $p.Tag = @{ Radius = $Radius }
+    }
     return $p
+}
+
+function Show-AmfetaminFormForeground {
+    param([System.Windows.Forms.Form]$Form)
+    if (-not $Form) { return }
+    try {
+        $Form.ShowInTaskbar = $true
+        $Form.WindowState = 'Normal'
+        if (-not $Form.Visible) { $Form.Show() }
+        $Form.Activate()
+        $Form.BringToFront()
+        try { $Form.Focus() } catch {}
+        $Form.TopMost = $true
+        $Form.TopMost = $false
+    } catch {}
+}
+
+function Show-AmfetaminModalDialog {
+    param(
+        [System.Windows.Forms.Form]$Dialog,
+        [System.Windows.Forms.Form]$Owner
+    )
+    if (-not $Dialog) { return }
+    try { $Dialog.Visible = $false } catch {}
+    if ($Owner) {
+        $Dialog.StartPosition = 'CenterParent'
+        [void]$Dialog.ShowDialog($Owner)
+    } else {
+        [void]$Dialog.ShowDialog()
+    }
+}
+
+function New-NavButton {
+    param(
+        [string]$Text,
+        [System.Drawing.Point]$Location,
+        [System.Windows.Forms.Panel]$Sidebar,
+        [System.Windows.Forms.Panel]$Page,
+        [scriptblock]$OnSelect = $null
+    )
+    $t = $Script:AmfetaminTheme
+    $btn = New-Object System.Windows.Forms.Button
+    $btn.Text = "  $Text"
+    $btn.TextAlign = 'MiddleLeft'
+    $btn.Size = New-Object System.Drawing.Size(168, 40)
+    $btn.Location = $Location
+    $btn.FlatStyle = 'Flat'
+    $btn.FlatAppearance.BorderSize = 0
+    $btn.BackColor = $t.BgPanel
+    $btn.ForeColor = $t.TextMuted
+    $btn.Font = New-AmfetaminFont 9.5
+    $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $btn.Tag = @{ Page = $Page; Normal = $t.BgPanel; Active = $t.BgCard; Accent = $t.Accent }
+    $btn.Add_MouseEnter({
+        if ($this.Tag.ActiveBg) { return }
+        try { $this.BackColor = $this.Tag.Active } catch {}
+    })
+    $btn.Add_MouseLeave({
+        if ($this.Tag.ActiveBg) { return }
+        try { $this.BackColor = $this.Tag.Normal } catch {}
+    })
+    $btn.Add_Click({
+        $theme = $Script:AmfetaminTheme
+        foreach ($nb in $Script:UiState.NavButtons) {
+            $nb.Tag.ActiveBg = $false
+            $nb.BackColor = $nb.Tag.Normal
+            $nb.ForeColor = $theme.TextMuted
+            if ($nb.Tag.Page) { $nb.Tag.Page.Visible = $false }
+        }
+        $this.Tag.ActiveBg = $true
+        $this.BackColor = $this.Tag.Active
+        $this.ForeColor = $this.Tag.Accent
+        if ($this.Tag.Page) {
+            $this.Tag.Page.Visible = $true
+            $this.Tag.Page.BringToFront()
+            $Script:UiState.ActivePage = $this.Tag.Page
+        }
+        if ($this.Tag.OnSelect) { & $this.Tag.OnSelect }
+    })
+    $Sidebar.Controls.Add($btn)
+    $Script:UiState.NavButtons += $btn
+    return $btn
 }
 
 function Set-SafeControlColor {
@@ -90,9 +200,25 @@ function New-AmfetaminButton {
     $btn.FlatAppearance.BorderSize = 0
     $btn.BackColor = $Bg
     $btn.ForeColor = [System.Drawing.Color]::White
-    $btn.Font = New-AmfetaminFont 10 'Bold'
+    $btn.Font = New-AmfetaminFont 9.5 'Bold'
     $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
-    $btn.Tag = @{ Normal = $Bg; Hover = $HoverBg }
+    $btn.Tag = @{ Normal = $Bg; Hover = $HoverBg; Radius = 8 }
+    $btn.Add_Paint({
+        if ($args.Count -lt 2) { return }
+        $snd = $args[0]; $ea = $args[1]
+        $w = [Math]::Max(1, [int]$snd.ClientSize.Width - 1)
+        $h = [Math]::Max(1, [int]$snd.ClientSize.Height - 1)
+        $r = 8
+        $ea.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+        $path.AddArc(0, 0, ($r * 2), ($r * 2), 180, 90)
+        $path.AddArc(($w - $r * 2), 0, ($r * 2), ($r * 2), 270, 90)
+        $path.AddArc(($w - $r * 2), ($h - $r * 2), ($r * 2), ($r * 2), 0, 90)
+        $path.AddArc(0, ($h - $r * 2), ($r * 2), ($r * 2), 90, 90)
+        $path.CloseFigure()
+        $ea.Graphics.FillPath((New-Object System.Drawing.SolidBrush($snd.BackColor)), $path)
+        $path.Dispose()
+    })
     $btn.Add_MouseEnter({
         $colors = $this.Tag
         if ($colors -and $colors.ContainsKey('Hover')) {
@@ -319,10 +445,135 @@ function Show-AmfetaminSplash {
             [System.Windows.Forms.Application]::DoEvents()
             Start-Sleep -Milliseconds 12
         }
+        $splash.DialogResult = [System.Windows.Forms.DialogResult]::OK
         $splash.Close()
     })
 
+    $splash.Add_FormClosed({
+        try { $splash.Dispose() } catch {}
+    })
+
+    try { $splash.Visible = $false } catch {}
     [void]$splash.ShowDialog()
+}
+
+function Update-AmfetaminDashboard {
+    $r = $Script:UiState.Refs
+    if (-not $r) { return }
+    $t = $Script:AmfetaminTheme
+    try {
+        $s = Get-AmfetaminStatus
+        $ok = $t.Success; $no = $t.Danger; $mid = $t.Warning
+
+        $r.PillNpcap.Dot.ForeColor = if ($s.NpcapInstalled) { $ok } else { $no }
+        $r.PillNpcap.Value.Text = if ($s.NpcapInstalled) { (T 'status_installed') } else { (T 'status_not_installed') }
+
+        $r.PillMotor.Dot.ForeColor = if ($s.EngineRunning) { $ok } else { if ($s.EngineDownloaded) { $mid } else { $no } }
+        $r.PillMotor.Value.Text = if ($s.EngineRunning) {
+            if ($s.Process) { "PID $($s.Process.Pid)" } else { (T 'status_active') }
+        } elseif ($s.EngineDownloaded) { (T 'status_ready') } else { (T 'status_none') }
+
+        $r.PillAuto.Dot.ForeColor = if ($s.AutoStartInstalled) { $ok } else { $no }
+        $r.PillAuto.Value.Text = if ($s.AutoStartInstalled) { (T 'status_active') } else { (T 'status_none') }
+
+        if ($s.EngineRunning) {
+            $now = Get-Date
+            if (-not $Script:DiscordCheckAt -or ($now - $Script:DiscordCheckAt).TotalSeconds -gt 30) {
+                $Script:DiscordCheckAt = $now
+                try { $Script:DiscordOk = Test-BypassTargetReachable -TimeoutSec 8 } catch { $Script:DiscordOk = $false }
+            }
+            if ($Script:DiscordOk -eq $true) {
+                $r.PillDiscord.Dot.ForeColor = $ok
+                $r.PillDiscord.Value.Text = (T 'status_ok')
+            } elseif ($Script:DiscordOk -eq $false) {
+                $r.PillDiscord.Dot.ForeColor = $no
+                $r.PillDiscord.Value.Text = (T 'status_timeout')
+            } else {
+                $r.PillDiscord.Dot.ForeColor = $mid
+                $r.PillDiscord.Value.Text = (T 'status_testing')
+            }
+        } else {
+            $Script:DiscordOk = $null
+            $r.PillDiscord.Dot.ForeColor = $t.TextMuted
+            $r.PillDiscord.Value.Text = (T 'status_off')
+        }
+
+        if ($s.EngineRunning) {
+            $r.LiveDot.Text = [char]0x25CF + (T 'live_on')
+            $r.LiveDot.ForeColor = $t.Success
+        } else {
+            $r.LiveDot.Text = [char]0x25CF + (T 'live_off')
+            $r.LiveDot.ForeColor = $t.Danger
+        }
+
+        $r.WarnPanel.Visible = [bool]$s.ZeroTierRunning
+
+        $lines = @(
+            (T 'info_version_line' $s.Version, $s.FakeTtl, $(if ($s.AutoTuneDone) { (T 'autotune_done') } else { (T 'autotune_pending') })),
+            (T 'info_install' $s.InstallRoot)
+        )
+        if ($s.Process) {
+            $lines += (T 'info_memory' $s.Process.MemoryMb)
+        }
+        $r.InfoBox.Text = ($lines -join "`r`n")
+    } catch {
+        Write-AmfetaminError -Message 'Dashboard guncelleme hatasi' -Exception $_.Exception
+    }
+}
+
+function Refresh-AmfetaminLogView {
+    $r = $Script:UiState.Refs
+    if (-not $r -or -not $r.LogFilter) { return }
+    $name = [string]$r.LogFilter.SelectedItem
+    if (-not $name) { return }
+    $lines = Get-AmfetaminLogTail -LogName $name -Lines 300
+    $r.LogBox.Text = ($lines -join "`r`n")
+    $r.LogBox.SelectionStart = $r.LogBox.Text.Length
+    $r.LogBox.ScrollToCaret()
+}
+
+function Load-AmfetaminSettings {
+    $r = $Script:UiState.Refs
+    if (-not $r) { return }
+    try {
+        $cfg = Get-Config
+        $r.SetDoh.SelectedItem = [string]$cfg.dohUpstream
+        if (-not $r.SetDoh.SelectedItem) { $r.SetDoh.SelectedIndex = 0 }
+        $r.SetTtl.Value = [decimal](if ($cfg.fakeTtl) { [int]$cfg.fakeTtl } else { 8 })
+        $r.SetAutoTune.Checked = -not ($cfg.autoTuneTtl -eq $false)
+        $r.SetWarmup.Checked = -not ($cfg.warmup -eq $false)
+        $r.SetVerbose.Checked = -not ($cfg.engineVerbose -eq $false)
+    } catch {}
+}
+
+function Invoke-AmfetaminUiAction {
+    param(
+        [scriptblock]$Action,
+        [string]$SuccessMsg = $null
+    )
+    $r = $Script:UiState.Refs
+    $form = $Script:UiState.MainForm
+    $t = $Script:AmfetaminTheme
+    try {
+        $result = & $Action
+        Update-AmfetaminDashboard
+        if ($SuccessMsg) {
+            Show-AmfetaminToast -Form $form -Bar $r.Toast -Message $SuccessMsg -Color $t.Success
+        } elseif ($result) {
+            Show-AmfetaminToast -Form $form -Bar $r.Toast -Message ($result.ToString().Split("`n")[0]) -Color $t.Success
+        }
+        Refresh-AmfetaminLogView
+    } catch {
+        Write-AmfetaminError -Message 'UI islem hatasi' -Exception $_.Exception
+        Show-AmfetaminToast -Form $form -Bar $r.Toast -Message $_.Exception.Message -Color $t.Danger
+        [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, (T 'app_name'), 'OK', 'Error')
+    }
+}
+
+function Restore-AmfetaminMainWindow {
+    $form = $Script:UiState.MainForm
+    if (-not $form) { return }
+    Show-AmfetaminFormForeground -Form $form
 }
 
 function Show-AmfetaminMainForm {
@@ -335,58 +586,17 @@ function Show-AmfetaminMainForm {
     $form = New-Object System.Windows.Forms.Form
     $form.Text = (T 'app_name')
     $form.ShowInTaskbar = $true
-    $form.Size = New-Object System.Drawing.Size(720, 620)
-    $form.MinimumSize = New-Object System.Drawing.Size(720, 620)
+    $form.Size = New-Object System.Drawing.Size(860, 640)
+    $form.MinimumSize = New-Object System.Drawing.Size(860, 640)
     $form.BackColor = $t.BgDeep
     $form.ForeColor = $t.Text
     $form.StartPosition = 'CenterScreen'
     $form.Font = New-AmfetaminFont 9
     $icon = Get-AmfetaminIcon
     if ($icon) { $form.Icon = $icon }
-
-    # Header
-    $header = New-Object System.Windows.Forms.Panel
-    $header.Dock = 'Top'
-    $header.Height = 72
-    $header.BackColor = $t.BgPanel
-    $header.Add_Paint({
-        if ($args.Count -lt 2) { return }
-        $snd = $args[0]; $ea = $args[1]
-        $w = [int]$snd.ClientSize.Width
-        $h = [int]$snd.ClientSize.Height
-        if ($w -lt 1 -or $h -lt 1) { return }
-        $pen = New-Object System.Drawing.Pen($t.Border)
-        $ea.Graphics.DrawLine($pen, 0, ($h - 1), $w, ($h - 1))
-        $pen.Dispose()
-    })
-    $form.Controls.Add($header)
-
-    $logo = New-Object System.Windows.Forms.Label
-    $logo.Text = (T 'app_name')
-    $logo.Font = New-Object System.Drawing.Font('Segoe UI', 22, [System.Drawing.FontStyle]::Bold)
-    $logo.ForeColor = $t.Accent
-    $logo.BackColor = $t.BgPanel
-    $logo.AutoSize = $true
-    $logo.Location = New-Object System.Drawing.Point(20, 14)
-    $header.Controls.Add($logo)
-
-    $verLbl = New-Object System.Windows.Forms.Label
-    try { $verLbl.Text = "v$((Get-Config).version)" } catch { $verLbl.Text = 'v2.0.0' }
-    $verLbl.Font = New-AmfetaminFont 9
-    $verLbl.ForeColor = $t.TextMuted
-    $verLbl.BackColor = $t.BgPanel
-    $verLbl.AutoSize = $true
-    $verLbl.Location = New-Object System.Drawing.Point(22, 46)
-    $header.Controls.Add($verLbl)
-
-    $liveDot = New-Object System.Windows.Forms.Label
-    $liveDot.Text = [char]0x25CF + (T 'live_off')
-    $liveDot.Font = New-AmfetaminFont 10 'Bold'
-    $liveDot.ForeColor = $t.Danger
-    $liveDot.BackColor = $t.BgPanel
-    $liveDot.AutoSize = $true
-    $liveDot.Location = New-Object System.Drawing.Point(540, 26)
-    $header.Controls.Add($liveDot)
+    $Script:UiState.MainForm = $form
+    $Script:UiState.FormReady = $false
+    $Script:UiState.NavButtons = @()
 
     # Toast bar
     $toast = New-Object System.Windows.Forms.Label
@@ -399,34 +609,84 @@ function Show-AmfetaminMainForm {
     $toast.Visible = $false
     $form.Controls.Add($toast)
 
-    # Tabs
-    $tabs = New-Object System.Windows.Forms.TabControl
-    $tabs.Dock = 'Fill'
-    $tabs.Font = New-AmfetaminFont 10 'Bold'
-    $tabs.Padding = New-Object System.Drawing.Point(16, 6)
-    Set-SafeControlColor $tabs $t.BgDeep
-    $form.Controls.Add($tabs)
-    $tabs.BringToFront()
+    $topAccent = New-Object System.Windows.Forms.Panel
+    $topAccent.Dock = 'Top'
+    $topAccent.Height = 2
+    $topAccent.BackColor = $t.Accent
+    $form.Controls.Add($topAccent)
 
-    function Style-TabPage($page) {
+    # Sidebar
+    $sidebar = New-Object System.Windows.Forms.Panel
+    $sidebar.Dock = 'Left'
+    $sidebar.Width = 180
+    $sidebar.BackColor = $t.BgPanel
+    $sidebar.Add_Paint({
+        if ($args.Count -lt 2) { return }
+        $snd = $args[0]; $ea = $args[1]
+        $w = [int]$snd.ClientSize.Width
+        $h = [int]$snd.ClientSize.Height
+        $pen = New-Object System.Drawing.Pen($t.Border)
+        $ea.Graphics.DrawLine($pen, ($w - 1), 0, ($w - 1), $h)
+        $pen.Dispose()
+    })
+    $form.Controls.Add($sidebar)
+
+    $brand = New-Object System.Windows.Forms.Label
+    $brand.Text = (T 'app_name')
+    $brand.Font = New-Object System.Drawing.Font('Segoe UI', 16, [System.Drawing.FontStyle]::Bold)
+    $brand.ForeColor = $t.Accent
+    $brand.BackColor = $t.BgPanel
+    $brand.AutoSize = $true
+    $brand.Location = New-Object System.Drawing.Point(18, 20)
+    $sidebar.Controls.Add($brand)
+
+    $verLbl = New-Object System.Windows.Forms.Label
+    try { $verLbl.Text = "v$((Get-Config).version)" } catch { $verLbl.Text = 'v2.0.0' }
+    $verLbl.Font = New-AmfetaminFont 8
+    $verLbl.ForeColor = $t.TextMuted
+    $verLbl.BackColor = $t.BgPanel
+    $verLbl.AutoSize = $true
+    $verLbl.Location = New-Object System.Drawing.Point(20, 48)
+    $sidebar.Controls.Add($verLbl)
+
+    $liveDot = New-Object System.Windows.Forms.Label
+    $liveDot.Text = [char]0x25CF + (T 'live_off')
+    $liveDot.Font = New-AmfetaminFont 9 'Bold'
+    $liveDot.ForeColor = $t.Danger
+    $liveDot.BackColor = $t.BgPanel
+    $liveDot.AutoSize = $true
+    $liveDot.Anchor = [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left
+    $liveDot.Location = New-Object System.Drawing.Point(18, 580)
+    $sidebar.Controls.Add($liveDot)
+
+    # Content shell
+    $content = New-Object System.Windows.Forms.Panel
+    $content.Dock = 'Fill'
+    $content.BackColor = $t.BgDeep
+    $content.Padding = New-Object System.Windows.Forms.Padding(0, 0, 0, 0)
+    $form.Controls.Add($content)
+    $content.BringToFront()
+
+    function New-ContentPage {
+        $page = New-Object System.Windows.Forms.Panel
+        $page.Dock = 'Fill'
         $page.BackColor = $t.BgDeep
-        $page.ForeColor = $t.Text
+        $page.Visible = $false
+        $content.Controls.Add($page)
+        return $page
     }
 
     # === DASHBOARD ===
-    $tabDash = New-Object System.Windows.Forms.TabPage
-    $tabDash.Text = (T 'tab_dashboard')
-    Style-TabPage $tabDash
-    $tabs.TabPages.Add($tabDash)
+    $tabDash = New-ContentPage
 
-    $pillNpcap = New-StatusPill -Parent $tabDash -Title (T 'pill_npcap') -Location (New-Object System.Drawing.Point(16, 16)) -Width 155
-    $pillMotor = New-StatusPill -Parent $tabDash -Title (T 'pill_engine') -Location (New-Object System.Drawing.Point(180, 16)) -Width 155
-    $pillAuto = New-StatusPill -Parent $tabDash -Title (T 'pill_auto') -Location (New-Object System.Drawing.Point(344, 16)) -Width 155
-    $pillDiscord = New-StatusPill -Parent $tabDash -Title (T 'pill_discord') -Location (New-Object System.Drawing.Point(508, 16)) -Width 155
+    $pillNpcap = New-StatusPill -Parent $tabDash -Title (T 'pill_npcap') -Location (New-Object System.Drawing.Point(20, 20)) -Width 150
+    $pillMotor = New-StatusPill -Parent $tabDash -Title (T 'pill_engine') -Location (New-Object System.Drawing.Point(182, 20)) -Width 150
+    $pillAuto = New-StatusPill -Parent $tabDash -Title (T 'pill_auto') -Location (New-Object System.Drawing.Point(344, 20)) -Width 150
+    $pillDiscord = New-StatusPill -Parent $tabDash -Title (T 'pill_discord') -Location (New-Object System.Drawing.Point(506, 20)) -Width 150
 
-    $warnPanel = New-AmfetaminRoundedPanel -BackColor ([System.Drawing.Color]::FromArgb(50, 35, 20))
-    $warnPanel.Size = New-Object System.Drawing.Size(648, 36)
-    $warnPanel.Location = New-Object System.Drawing.Point(16, 98)
+    $warnPanel = New-AmfetaminRoundedPanel -BackColor ([System.Drawing.Color]::FromArgb(50, 35, 20)) -Radius 8
+    $warnPanel.Size = New-Object System.Drawing.Size(636, 36)
+    $warnPanel.Location = New-Object System.Drawing.Point(20, 104)
     $warnPanel.Visible = $false
     $tabDash.Controls.Add($warnPanel)
     $warnLbl = New-Object System.Windows.Forms.Label
@@ -445,46 +705,43 @@ function Show-AmfetaminMainForm {
     $infoBox.BackColor = $t.BgCard
     $infoBox.ForeColor = $t.TextMuted
     $infoBox.Font = New-AmfetaminFont 9
-    $infoBox.Location = New-Object System.Drawing.Point(16, 142)
-    $infoBox.Size = New-Object System.Drawing.Size(648, 80)
+    $infoBox.Location = New-Object System.Drawing.Point(20, 152)
+    $infoBox.Size = New-Object System.Drawing.Size(636, 80)
     $tabDash.Controls.Add($infoBox)
 
     $btnInstall = New-AmfetaminButton -Text (T 'btn_install') `
-        -Bg $t.AccentGlow -HoverBg $t.Accent -Size (New-Object System.Drawing.Size(648, 48)) `
-        -Location (New-Object System.Drawing.Point(16, 234)) -OnClick {}
+        -Bg $t.AccentGlow -HoverBg $t.Accent -Size (New-Object System.Drawing.Size(636, 46)) `
+        -Location (New-Object System.Drawing.Point(20, 246)) -OnClick {}
     $tabDash.Controls.Add($btnInstall)
 
     $btnStart = New-AmfetaminButton -Text (T 'btn_start') -Bg $t.Purple -HoverBg $t.Pink `
-        -Size (New-Object System.Drawing.Size(210, 42)) -Location (New-Object System.Drawing.Point(16, 292)) -OnClick {}
+        -Size (New-Object System.Drawing.Size(206, 42)) -Location (New-Object System.Drawing.Point(20, 304)) -OnClick {}
     $tabDash.Controls.Add($btnStart)
 
     $btnStop = New-AmfetaminButton -Text (T 'btn_stop') -Bg ([System.Drawing.Color]::FromArgb(60, 60, 85)) `
         -HoverBg ([System.Drawing.Color]::FromArgb(80, 80, 110)) `
-        -Size (New-Object System.Drawing.Size(210, 42)) -Location (New-Object System.Drawing.Point(235, 292)) -OnClick {}
+        -Size (New-Object System.Drawing.Size(206, 42)) -Location (New-Object System.Drawing.Point(234, 304)) -OnClick {}
     $tabDash.Controls.Add($btnStop)
 
     $btnCleanup = New-AmfetaminButton -Text (T 'btn_cleanup') -Bg ([System.Drawing.Color]::FromArgb(90, 65, 30)) `
         -HoverBg $t.Warning `
-        -Size (New-Object System.Drawing.Size(210, 42)) -Location (New-Object System.Drawing.Point(454, 292)) -OnClick {}
+        -Size (New-Object System.Drawing.Size(206, 42)) -Location (New-Object System.Drawing.Point(448, 304)) -OnClick {}
     $tabDash.Controls.Add($btnCleanup)
 
     $btnTest = New-AmfetaminButton -Text (T 'btn_test') -Bg $t.BgCard -HoverBg $t.BgCardHover `
-        -Size (New-Object System.Drawing.Size(210, 38)) -Location (New-Object System.Drawing.Point(16, 344)) -OnClick {}
+        -Size (New-Object System.Drawing.Size(206, 38)) -Location (New-Object System.Drawing.Point(20, 356)) -OnClick {}
     $tabDash.Controls.Add($btnTest)
 
     $btnTtl = New-AmfetaminButton -Text (T 'btn_ttl') -Bg $t.BgCard -HoverBg $t.BgCardHover `
-        -Size (New-Object System.Drawing.Size(210, 38)) -Location (New-Object System.Drawing.Point(235, 344)) -OnClick {}
+        -Size (New-Object System.Drawing.Size(206, 38)) -Location (New-Object System.Drawing.Point(234, 356)) -OnClick {}
     $tabDash.Controls.Add($btnTtl)
 
     $btnNpcap = New-AmfetaminButton -Text (T 'btn_npcap') -Bg $t.BgCard -HoverBg $t.BgCardHover `
-        -Size (New-Object System.Drawing.Size(210, 38)) -Location (New-Object System.Drawing.Point(454, 344)) -OnClick {}
+        -Size (New-Object System.Drawing.Size(206, 38)) -Location (New-Object System.Drawing.Point(448, 356)) -OnClick {}
     $tabDash.Controls.Add($btnNpcap)
 
     # === LOGS ===
-    $tabLogs = New-Object System.Windows.Forms.TabPage
-    $tabLogs.Text = (T 'tab_logs')
-    Style-TabPage $tabLogs
-    $tabs.TabPages.Add($tabLogs)
+    $tabLogs = New-ContentPage
 
     $logFilter = New-Object System.Windows.Forms.ComboBox
     $logFilter.Location = New-Object System.Drawing.Point(16, 12)
@@ -514,8 +771,8 @@ function Show-AmfetaminMainForm {
     $logBox.BackColor = [System.Drawing.Color]::FromArgb(12, 12, 20)
     $logBox.ForeColor = $t.Accent
     $logBox.Font = New-Object System.Drawing.Font('Consolas', 9)
-    $logBox.Location = New-Object System.Drawing.Point(16, 48)
-    $logBox.Size = New-Object System.Drawing.Size(648, 360)
+    $logBox.Location = New-Object System.Drawing.Point(20, 48)
+    $logBox.Size = New-Object System.Drawing.Size(636, 380)
     $tabLogs.Controls.Add($logBox)
 
     $btnLogRefresh = New-AmfetaminButton -Text (T 'btn_refresh') -Bg $t.BgCard -HoverBg $t.BgCardHover `
@@ -532,10 +789,7 @@ function Show-AmfetaminMainForm {
     $tabLogs.Controls.Add($btnLogClear)
 
     # === SETTINGS ===
-    $tabSet = New-Object System.Windows.Forms.TabPage
-    $tabSet.Text = (T 'tab_settings')
-    Style-TabPage $tabSet
-    $tabs.TabPages.Add($tabSet)
+    $tabSet = New-ContentPage
 
     $y = 20
     function Add-SettingLabel($text, $yy) {
@@ -593,10 +847,7 @@ function Show-AmfetaminMainForm {
     $tabSet.Controls.Add($btnSaveSettings)
 
     # === DIAGNOSTICS ===
-    $tabDiag = New-Object System.Windows.Forms.TabPage
-    $tabDiag.Text = (T 'tab_diagnostics')
-    Style-TabPage $tabDiag
-    $tabs.TabPages.Add($tabDiag)
+    $tabDiag = New-ContentPage
 
     $diagBox = New-Object System.Windows.Forms.TextBox
     $diagBox.Multiline = $true
@@ -605,8 +856,8 @@ function Show-AmfetaminMainForm {
     $diagBox.BackColor = $t.BgCard
     $diagBox.ForeColor = $t.Text
     $diagBox.Font = New-Object System.Drawing.Font('Consolas', 9)
-    $diagBox.Location = New-Object System.Drawing.Point(16, 16)
-    $diagBox.Size = New-Object System.Drawing.Size(648, 380)
+    $diagBox.Location = New-Object System.Drawing.Point(20, 16)
+    $diagBox.Size = New-Object System.Drawing.Size(636, 400)
     $tabDiag.Controls.Add($diagBox)
 
     $btnDiagRun = New-AmfetaminButton -Text (T 'btn_run_diagnostics') -Bg $t.Purple -HoverBg $t.Pink `
@@ -622,10 +873,7 @@ function Show-AmfetaminMainForm {
     $tabDiag.Controls.Add($btnDiagFolder)
 
     # === ABOUT ===
-    $tabAbout = New-Object System.Windows.Forms.TabPage
-    $tabAbout.Text = (T 'tab_about')
-    Style-TabPage $tabAbout
-    $tabs.TabPages.Add($tabAbout)
+    $tabAbout = New-ContentPage
 
     $aboutText = (T 'about_text')
 
@@ -656,116 +904,45 @@ function Show-AmfetaminMainForm {
     $updateLbl.Location = New-Object System.Drawing.Point(24, 372)
     $tabAbout.Controls.Add($updateLbl)
 
-    # --- Helpers ---
-    function Update-Dashboard {
-        try {
-            $s = Get-AmfetaminStatus
-            $ok = $t.Success; $no = $t.Danger; $mid = $t.Warning
-
-            $pillNpcap.Dot.ForeColor = if ($s.NpcapInstalled) { $ok } else { $no }
-            $pillNpcap.Value.Text = if ($s.NpcapInstalled) { (T 'status_installed') } else { (T 'status_not_installed') }
-
-            $pillMotor.Dot.ForeColor = if ($s.EngineRunning) { $ok } else { if ($s.EngineDownloaded) { $mid } else { $no } }
-            $pillMotor.Value.Text = if ($s.EngineRunning) {
-                if ($s.Process) { "PID $($s.Process.Pid)" } else { (T 'status_active') }
-            } elseif ($s.EngineDownloaded) { (T 'status_ready') } else { (T 'status_none') }
-
-            $pillAuto.Dot.ForeColor = if ($s.AutoStartInstalled) { $ok } else { $no }
-            $pillAuto.Value.Text = if ($s.AutoStartInstalled) { (T 'status_active') } else { (T 'status_none') }
-
-            if ($s.EngineRunning) {
-                $now = Get-Date
-                if (-not $Script:DiscordCheckAt -or ($now - $Script:DiscordCheckAt).TotalSeconds -gt 30) {
-                    $Script:DiscordCheckAt = $now
-                    try { $Script:DiscordOk = Test-BypassTargetReachable -TimeoutSec 8 } catch { $Script:DiscordOk = $false }
-                }
-                if ($Script:DiscordOk -eq $true) {
-                    $pillDiscord.Dot.ForeColor = $ok
-                    $pillDiscord.Value.Text = (T 'status_ok')
-                } elseif ($Script:DiscordOk -eq $false) {
-                    $pillDiscord.Dot.ForeColor = $no
-                    $pillDiscord.Value.Text = (T 'status_timeout')
-                } else {
-                    $pillDiscord.Dot.ForeColor = $mid
-                    $pillDiscord.Value.Text = (T 'status_testing')
-                }
-            } else {
-                $Script:DiscordOk = $null
-                $pillDiscord.Dot.ForeColor = $t.TextMuted
-                $pillDiscord.Value.Text = (T 'status_off')
-            }
-
-            if ($s.EngineRunning) {
-                $liveDot.Text = [char]0x25CF + (T 'live_on')
-                $liveDot.ForeColor = $t.Success
-            } else {
-                $liveDot.Text = [char]0x25CF + (T 'live_off')
-                $liveDot.ForeColor = $t.Danger
-            }
-
-            $warnPanel.Visible = [bool]$s.ZeroTierRunning
-
-            $lines = @(
-                (T 'info_version_line' $s.Version, $s.FakeTtl, $(if ($s.AutoTuneDone) { (T 'autotune_done') } else { (T 'autotune_pending') })),
-                (T 'info_install' $s.InstallRoot)
-            )
-            if ($s.Process) {
-                $lines += (T 'info_memory' $s.Process.MemoryMb)
-            }
-            $infoBox.Text = ($lines -join "`r`n")
-        } catch {
-            Write-AmfetaminError -Message 'Dashboard guncelleme hatasi' -Exception $_.Exception
-        }
+    $Script:UiState.Refs = [PSCustomObject]@{
+        Toast       = $toast
+        LiveDot     = $liveDot
+        PillNpcap   = $pillNpcap
+        PillMotor   = $pillMotor
+        PillAuto    = $pillAuto
+        PillDiscord = $pillDiscord
+        WarnPanel   = $warnPanel
+        InfoBox     = $infoBox
+        LogFilter   = $logFilter
+        LogBox      = $logBox
+        LogAuto     = $logAuto
+        TabLogs     = $tabLogs
+        SetDoh      = $setDoh
+        SetTtl      = $setTtl
+        SetAutoTune = $setAutoTune
+        SetWarmup   = $setWarmup
+        SetVerbose  = $setVerbose
+        DiagBox     = $diagBox
+        UpdateLbl   = $updateLbl
     }
 
-    function Refresh-LogView {
-        $name = [string]$logFilter.SelectedItem
-        if (-not $name) { return }
-        $lines = Get-AmfetaminLogTail -LogName $name -Lines 300
-        $logBox.Text = ($lines -join "`r`n")
-        $logBox.SelectionStart = $logBox.Text.Length
-        $logBox.ScrollToCaret()
-    }
-
-    function Load-Settings {
-        try {
-            $cfg = Get-Config
-            $setDoh.SelectedItem = [string]$cfg.dohUpstream
-            if (-not $setDoh.SelectedItem) { $setDoh.SelectedIndex = 0 }
-            $setTtl.Value = [decimal](if ($cfg.fakeTtl) { [int]$cfg.fakeTtl } else { 8 })
-            $setAutoTune.Checked = -not ($cfg.autoTuneTtl -eq $false)
-            $setWarmup.Checked = -not ($cfg.warmup -eq $false)
-            $setVerbose.Checked = -not ($cfg.engineVerbose -eq $false)
-        } catch {}
-    }
-
-    function Invoke-UiAction {
-        param(
-            [scriptblock]$Action,
-            [string]$SuccessMsg = $null
-        )
-        try {
-            $result = & $Action
-            Update-Dashboard
-            if ($SuccessMsg) {
-                Show-AmfetaminToast -Form $form -Bar $toast -Message $SuccessMsg -Color $t.Success
-            } elseif ($result) {
-                Show-AmfetaminToast -Form $form -Bar $toast -Message ($result.ToString().Split("`n")[0]) -Color $t.Success
-            }
-            Refresh-LogView
-        } catch {
-            Write-AmfetaminError -Message 'UI islem hatasi' -Exception $_.Exception
-            Show-AmfetaminToast -Form $form -Bar $toast -Message $_.Exception.Message -Color $t.Danger
-            [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, (T 'app_name'), 'OK', 'Error')
-        }
-    }
+    $navY = 88
+    $navDash = New-NavButton -Text (T 'tab_dashboard') -Location (New-Object System.Drawing.Point(6, $navY)) -Sidebar $sidebar -Page $tabDash
+    $navY += 44
+    $navLogs = New-NavButton -Text (T 'tab_logs') -Location (New-Object System.Drawing.Point(6, $navY)) -Sidebar $sidebar -Page $tabLogs
+    $navY += 44
+    $navSet = New-NavButton -Text (T 'tab_settings') -Location (New-Object System.Drawing.Point(6, $navY)) -Sidebar $sidebar -Page $tabSet
+    $navY += 44
+    $navDiag = New-NavButton -Text (T 'tab_diagnostics') -Location (New-Object System.Drawing.Point(6, $navY)) -Sidebar $sidebar -Page $tabDiag
+    $navY += 44
+    $navAbout = New-NavButton -Text (T 'tab_about') -Location (New-Object System.Drawing.Point(6, $navY)) -Sidebar $sidebar -Page $tabAbout
+    $navDash.PerformClick()
 
     # Wire events
     $btnInstall.Add_Click({
         $wiz = New-Object System.Windows.Forms.Form
         $wiz.Text = (T 'wizard_install_title')
         $wiz.Size = New-Object System.Drawing.Size(520, 400)
-        $wiz.StartPosition = 'CenterScreen'
         $wiz.BackColor = $t.BgDeep
         $wiz.ForeColor = $t.Text
         if ($icon) { $wiz.Icon = $icon }
@@ -804,27 +981,28 @@ function Show-AmfetaminMainForm {
                 $wLog.AppendText("$(T 'wizard_error_prefix' $_.Exception.Message)`r`n")
                 Write-AmfetaminError -Message 'Kurulum hatasi' -Exception $_.Exception
                 [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, (T 'app_name'), 'OK', 'Error')
+                $wiz.DialogResult = 'Cancel'
                 $wiz.Close()
             }
         })
-        [void]$wiz.ShowDialog()
-        Update-Dashboard
-        Refresh-LogView
+        Show-AmfetaminModalDialog -Dialog $wiz -Owner $form
+        Update-AmfetaminDashboard
+        Refresh-AmfetaminLogView
     })
 
-    $btnStart.Add_Click({ Invoke-UiAction { Install-And-Start } })
-    $btnStop.Add_Click({ Invoke-UiAction { Stop-Amfetamin } })
-    $btnNpcap.Add_Click({ Invoke-UiAction { Install-NpcapGui } })
+    $btnStart.Add_Click({ Invoke-AmfetaminUiAction { Install-And-Start } })
+    $btnStop.Add_Click({ Invoke-AmfetaminUiAction { Stop-Amfetamin } })
+    $btnNpcap.Add_Click({ Invoke-AmfetaminUiAction { Install-NpcapGui } })
 
     $btnCleanup.Add_Click({
         $r = [System.Windows.Forms.MessageBox]::Show(
             (T 'msg_cleanup_confirm'),
             (T 'app_name'), 'YesNo', 'Warning')
-        if ($r -eq 'Yes') { Invoke-UiAction { Invoke-AmfetaminCleanup } }
+        if ($r -eq 'Yes') { Invoke-AmfetaminUiAction { Invoke-AmfetaminCleanup } }
     })
 
     $btnTest.Add_Click({
-        Invoke-UiAction {
+        Invoke-AmfetaminUiAction {
             $results = Test-AmfetaminConnectivity
             ($results | ForEach-Object {
                 $st = if ($_.Ok) { "OK $($_.StatusCode)" } else { 'FAIL' }
@@ -840,7 +1018,7 @@ function Show-AmfetaminMainForm {
         if ($r -eq 'Yes') {
             $wiz = New-Object System.Windows.Forms.Form
             $wiz.Text = (T 'wizard_ttl_title'); $wiz.Size = New-Object System.Drawing.Size(440, 220)
-            $wiz.StartPosition = 'CenterScreen'; $wiz.BackColor = $t.BgDeep
+            $wiz.BackColor = $t.BgDeep
             $wl = New-Object System.Windows.Forms.Label
             $wl.Text = (T 'wizard_ttl_waiting')
             $wl.ForeColor = $t.Accent; $wl.Font = New-AmfetaminFont 11
@@ -858,19 +1036,21 @@ function Show-AmfetaminMainForm {
                 try {
                     $msg = Invoke-ManualTtlRetune -Progress { param($m) $statusL.Text = $m; [System.Windows.Forms.Application]::DoEvents() }
                     [void][System.Windows.Forms.MessageBox]::Show($msg, (T 'app_name'))
+                    $wiz.DialogResult = 'OK'
                     $wiz.Close()
                 } catch {
                     [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, (T 'app_name'), 'OK', 'Error')
+                    $wiz.DialogResult = 'Cancel'
                     $wiz.Close()
                 }
             })
-            [void]$wiz.ShowDialog()
-            Update-Dashboard
+            Show-AmfetaminModalDialog -Dialog $wiz -Owner $form
+            Update-AmfetaminDashboard
         }
     })
 
-    $btnLogRefresh.Add_Click({ Refresh-LogView })
-    $logFilter.Add_SelectedIndexChanged({ Refresh-LogView })
+    $btnLogRefresh.Add_Click({ Refresh-AmfetaminLogView })
+    $logFilter.Add_SelectedIndexChanged({ Refresh-AmfetaminLogView })
     $btnLogExport.Add_Click({
         try {
             $path = Export-AmfetaminLogs
@@ -882,11 +1062,11 @@ function Show-AmfetaminMainForm {
     })
     $btnLogClear.Add_Click({
         $r = [System.Windows.Forms.MessageBox]::Show((T 'msg_clear_logs_confirm'), (T 'app_name'), 'YesNo', 'Warning')
-        if ($r -eq 'Yes') { Clear-AmfetaminLogs; Refresh-LogView }
+        if ($r -eq 'Yes') { Clear-AmfetaminLogs; Refresh-AmfetaminLogView }
     })
 
     $btnSaveSettings.Add_Click({
-        Invoke-UiAction {
+        Invoke-AmfetaminUiAction {
             Save-AmfetaminSettings -DohUpstream $setDoh.SelectedItem -FakeTtl ([int]$setTtl.Value) `
                 -AutoTuneTtl $setAutoTune.Checked -Warmup $setWarmup.Checked -EngineVerbose $setVerbose.Checked
         }
@@ -943,7 +1123,7 @@ function Show-AmfetaminMainForm {
         $r = [System.Windows.Forms.MessageBox]::Show(
             (T 'msg_uninstall_confirm'),
             (T 'app_name'), 'YesNo', 'Warning')
-        if ($r -eq 'Yes') { Invoke-UiAction { Uninstall-FromDevice } }
+        if ($r -eq 'Yes') { Invoke-AmfetaminUiAction { Uninstall-FromDevice } }
     })
 
     # System tray
@@ -958,19 +1138,20 @@ function Show-AmfetaminMainForm {
     $tray.Text = (T 'app_name')
     if ($icon) { $tray.Icon = $icon } else { $tray.Icon = [System.Drawing.SystemIcons]::Shield }
     $tray.ContextMenuStrip = $trayMenu
-    $tray.Visible = $true
+    $tray.Visible = $false
     $Script:UiState.TrayIcon = $tray
 
-    $miShow.Add_Click({ $form.Show(); $form.WindowState = 'Normal'; $form.BringToFront() })
-    $miDash.Add_Click({ Update-Dashboard; $form.Show() })
+    $miShow.Add_Click({ Restore-AmfetaminMainWindow })
+    $miDash.Add_Click({ Update-AmfetaminDashboard; Restore-AmfetaminMainWindow })
     $miExit.Add_Click({
         $tray.Visible = $false
         $tray.Dispose()
         $form.Close()
     })
-    $tray.Add_DoubleClick({ $form.Show(); $form.WindowState = 'Normal' })
+    $tray.Add_DoubleClick({ Restore-AmfetaminMainWindow })
 
     $form.Add_Resize({
+        if (-not $Script:UiState.FormReady) { return }
         if ($form.WindowState -eq 'Minimized') {
             $form.Hide()
             $tray.ShowBalloonTip(2000, (T 'app_name'), (T 'tray_balloon'), 'Info')
@@ -980,24 +1161,32 @@ function Show-AmfetaminMainForm {
     # Live timers
     $statusTimer = New-Object System.Windows.Forms.Timer
     $statusTimer.Interval = 3000
-    $statusTimer.Add_Tick({ Update-Dashboard })
+    $statusTimer.Add_Tick({ Update-AmfetaminDashboard })
     $statusTimer.Start()
     $Script:UiState.StatusTimer = $statusTimer
 
     $logTimer = New-Object System.Windows.Forms.Timer
     $logTimer.Interval = 2000
     $logTimer.Add_Tick({
-        if ($tabs.SelectedTab -eq $tabLogs -and $logAuto.Checked) { Refresh-LogView }
+        $r = $Script:UiState.Refs
+        if ($Script:UiState.ActivePage -eq $r.TabLogs -and $r.LogAuto.Checked) { Refresh-AmfetaminLogView }
     })
     $logTimer.Start()
     $Script:UiState.LogTimer = $logTimer
 
     Register-LogSubscriber {
         param($line, $level)
-        if ($tabs.SelectedTab -eq $tabLogs -and $logAuto.Checked) {
-            try { Refresh-LogView } catch {}
+        $r = $Script:UiState.Refs
+        if ($Script:UiState.ActivePage -eq $r.TabLogs -and $r.LogAuto.Checked) {
+            try { Refresh-AmfetaminLogView } catch {}
         }
     }
+
+    $form.Add_Shown({
+        Show-AmfetaminFormForeground -Form $form
+        $Script:UiState.FormReady = $true
+        if ($Script:UiState.TrayIcon) { $Script:UiState.TrayIcon.Visible = $true }
+    })
 
     $form.Add_FormClosed({
         if ($Script:UiState.StatusTimer) { $Script:UiState.StatusTimer.Stop() }
@@ -1006,13 +1195,17 @@ function Show-AmfetaminMainForm {
             $Script:UiState.TrayIcon.Visible = $false
             $Script:UiState.TrayIcon.Dispose()
         }
+        $Script:UiState.MainForm = $null
+        $Script:UiState.Refs = $null
+        $Script:UiState.FormReady = $false
         Write-AmfetaminLog -Message 'Ana pencere kapatildi' -Level INFO -Audit
     })
 
-    Load-Settings
-    Update-Dashboard
-    Refresh-LogView
+    Load-AmfetaminSettings
+    Update-AmfetaminDashboard
+    Refresh-AmfetaminLogView
     Write-AmfetaminLog -Message 'Ana arayuz acildi' -Level INFO -Audit
 
+    try { $form.Visible = $false } catch {}
     [void]$form.ShowDialog()
 }

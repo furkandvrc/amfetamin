@@ -3,7 +3,7 @@ import AppKit
 
 @MainActor
 final class AmfetaminController: ObservableObject {
-    @Published var version = "3.1.1"
+    @Published var version = "3.1.2"
     @Published var isRunning = false
     @Published var launchdInstalled = false
     @Published var fakeTtl = "8"
