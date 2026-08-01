@@ -251,8 +251,23 @@ function Stop-LegacyEngine {
     }
 }
 
+function Get-AmfetaminEngineProcesses {
+    $binDir = [System.IO.Path]::GetFullPath($Script:BinDir)
+    @(
+        Get-Process -Name 'amfetamin' -ErrorAction SilentlyContinue | Where-Object {
+            try {
+                if (-not $_.Path) { return $false }
+                $dir = [System.IO.Path]::GetFullPath((Split-Path $_.Path -Parent))
+                return ($dir -ceq $binDir)
+            } catch {
+                return $false
+            }
+        }
+    )
+}
+
 function Test-AmfetaminRunning {
-    return $null -ne (Get-Process -Name 'amfetamin' -ErrorAction SilentlyContinue)
+    return (@(Get-AmfetaminEngineProcesses)).Count -gt 0
 }
 
 function Test-AutoStartInstalled {
@@ -265,7 +280,7 @@ function Test-AutoStartInstalled {
 }
 
 function Get-AmfetaminProcessInfo {
-    $proc = Get-Process -Name 'amfetamin' -ErrorAction SilentlyContinue | Select-Object -First 1
+    $proc = Get-AmfetaminEngineProcesses | Select-Object -First 1
     if (-not $proc) { return $null }
     return [PSCustomObject]@{
         Pid = $proc.Id
@@ -440,6 +455,7 @@ function Start-AmfetaminHidden {
     )
     if (-not (Test-IsAdmin)) { throw (T 'err_admin_required') }
     if (-not (Test-NpcapInstalled)) { throw (T 'err_npcap_not_installed') }
+    Stop-ZeroTierIfRunning | Out-Null
     Ensure-EngineBinary
     Stop-LegacyEngine
     if (Test-AmfetaminRunning) {
@@ -501,7 +517,7 @@ pause
 }
 
 function Stop-Amfetamin {
-    $procs = Get-Process -Name 'amfetamin' -ErrorAction SilentlyContinue
+    $procs = @(Get-AmfetaminEngineProcesses)
     if (-not $procs) {
         Stop-LegacyEngine | Out-Null
         return (T 'msg_engine_not_running')
@@ -608,6 +624,7 @@ function Install-ToDevice {
 
     if (-not (Test-IsAdmin)) { throw (T 'err_admin_required') }
 
+    Stop-ZeroTierIfRunning | Out-Null
     Write-AmfetaminLog -Message 'Cihaza kurulum basladi' -Level INFO -Audit
     $messages = @()
     if (-not (Test-NpcapInstalled)) {

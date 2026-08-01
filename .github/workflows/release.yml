@@ -50,5 +50,6 @@ jobs:
           gh release create "$TAG" \
             --title "amfetamin ${TAG#v}" \
             --notes-file .github/release-notes.md \
+            --latest \
             "artifacts/amfetamin-macos/amfetamin-macos.zip" \
             "artifacts/amfetamin-windows/amfetamin-windows.zip"

@@ -23,19 +23,15 @@ $Script:AmfetaminTheme = @{
 }
 
 $Script:UiState = @{
-    StatusTimer       = $null
-    LogTimer          = $null
-    ToastTimer        = $null
-    TrayIcon          = $null
-    MainForm          = $null
-    Refs              = $null
-    FormReady         = $false
-    NavButtons        = @()
-    ActivePage        = $null
-    WorkerBusy        = $false
-    WorkerSlot        = $null
-    ActiveWorker      = $null
-    DiscordCheckJob   = $null
+    StatusTimer = $null
+    LogTimer    = $null
+    ToastTimer  = $null
+    TrayIcon    = $null
+    MainForm    = $null
+    Refs        = $null
+    FormReady   = $false
+    NavButtons  = @()
+    ActivePage  = $null
 }
 
 function New-AmfetaminFont($size, $style = 'Regular') {
@@ -95,127 +91,6 @@ function New-AmfetaminRoundedPanel {
     return $p
 }
 
-function Start-AmfetaminBackgroundWorker {
-    param(
-        [scriptblock]$Work,
-        [scriptblock]$OnComplete,
-        [scriptblock]$OnProgress = $null,
-        [System.Windows.Forms.Control]$BusyControl = $null
-    )
-
-    if ($Script:UiState.WorkerBusy) {
-        [void][System.Windows.Forms.MessageBox]::Show((T 'msg_busy_wait'), (T 'app_name'), 'OK', 'Information')
-        return $false
-    }
-
-    $Script:UiState.WorkerBusy = $true
-    $Script:UiState.WorkerSlot = @{
-        Work         = $Work
-        OnComplete   = $OnComplete
-        OnProgress   = $OnProgress
-        BusyControl  = $BusyControl
-    }
-    if ($BusyControl) {
-        try { $BusyControl.Enabled = $false } catch {}
-    }
-
-    $bw = New-Object System.ComponentModel.BackgroundWorker
-    $bw.WorkerReportsProgress = $null -ne $OnProgress
-    $Script:UiState.ActiveWorker = $bw
-
-    $bw.Add_DoWork({
-        param($sender, $e)
-        $slot = $Script:UiState.WorkerSlot
-        try {
-            if ($slot.OnProgress) {
-                $progress = {
-                    param($msg)
-                    try { $sender.ReportProgress(0, [string]$msg) } catch {}
-                }
-                $e.Result = & $slot.Work $progress
-            } else {
-                $e.Result = & $slot.Work
-            }
-        } catch {
-            $e.Result = [PSCustomObject]@{ __Error = $_.Exception.Message }
-        }
-    })
-
-    if ($OnProgress) {
-        $bw.Add_ProgressChanged({
-            param($sender, $e)
-            $slot = $Script:UiState.WorkerSlot
-            if ($slot.OnProgress) {
-                try { & $slot.OnProgress $e.UserState } catch {}
-            }
-        })
-    }
-
-    $bw.Add_RunWorkerCompleted({
-        param($sender, $e)
-        $slot = $Script:UiState.WorkerSlot
-        if ($slot -and $slot.BusyControl) {
-            try { $slot.BusyControl.Enabled = $true } catch {}
-        }
-        $Script:UiState.WorkerBusy = $false
-        $Script:UiState.ActiveWorker = $null
-        try {
-            if ($e.Error) {
-                & $slot.OnComplete $null $e.Error
-            } elseif ($e.Result -is [PSCustomObject] -and $e.Result.PSObject.Properties.Name -contains '__Error') {
-                & $slot.OnComplete $null ([System.Exception]::new([string]$e.Result.__Error))
-            } else {
-                & $slot.OnComplete $e.Result $null
-            }
-        } catch {
-            Write-AmfetaminError -Message 'Worker tamamlama hatasi' -Exception $_.Exception
-        }
-        $Script:UiState.WorkerSlot = $null
-    })
-
-    $bw.RunWorkerAsync() | Out-Null
-    return $true
-}
-
-function Start-AmfetaminDiscordReachabilityCheck {
-    if ($Script:UiState.DiscordCheckJob) { return }
-    $url = 'https://discord.com'
-    $timeout = 4
-    try {
-        $cfg = Get-Config
-        if ($cfg.PSObject.Properties.Name -contains 'autoTuneUrl' -and $cfg.autoTuneUrl) {
-            $url = [string]$cfg.autoTuneUrl
-        }
-    } catch {}
-    $Script:UiState.DiscordCheckJob = Start-Job -ScriptBlock {
-        param($Url, $TimeoutSec)
-        foreach ($method in @('Head', 'Get')) {
-            try {
-                $params = @{
-                    Uri             = $Url
-                    UseBasicParsing = $true
-                    TimeoutSec      = $TimeoutSec
-                    ErrorAction     = 'Stop'
-                }
-                if ($method -eq 'Head') { $params.Method = 'Head' }
-                $r = Invoke-WebRequest @params
-                if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 400) { return $true }
-            } catch {}
-        }
-        return $false
-    } -ArgumentList $url, $timeout
-}
-
-function Stop-AmfetaminDiscordReachabilityCheck {
-    $job = $Script:UiState.DiscordCheckJob
-    if (-not $job) { return }
-    try {
-        Stop-Job $job -ErrorAction SilentlyContinue
-        Remove-Job $job -Force -ErrorAction SilentlyContinue
-    } catch {}
-    $Script:UiState.DiscordCheckJob = $null
-}
-
 function Update-AmfetaminDiscordPill {
     param(
         $PillDiscord,
@@ -223,50 +98,39 @@ function Update-AmfetaminDiscordPill {
         [System.Drawing.Color]$Ok,
         [System.Drawing.Color]$No,
         [System.Drawing.Color]$Mid,
-        [System.Drawing.Color]$Muted
+        [System.Drawing.Color]$Muted,
+        [System.Windows.Forms.Panel]$DashPage = $null
     )
     if (-not $PillDiscord) { return }
 
     if (-not $EngineRunning) {
         $Script:DiscordOk = $null
-        Stop-AmfetaminDiscordReachabilityCheck
         $PillDiscord.Dot.ForeColor = $Muted
         $PillDiscord.Value.Text = (T 'status_off')
         return
     }
 
-    $job = $Script:UiState.DiscordCheckJob
-    if ($job) {
-        $state = $job.State
-        if ($state -eq 'Completed') {
-            try { $Script:DiscordOk = [bool](Receive-Job $job) } catch { $Script:DiscordOk = $false }
-            Remove-Job $job -Force -ErrorAction SilentlyContinue
-            $Script:UiState.DiscordCheckJob = $null
-            $Script:DiscordCheckAt = Get-Date
-        } elseif ($state -in @('Failed', 'Stopped')) {
-            Remove-Job $job -Force -ErrorAction SilentlyContinue
-            $Script:UiState.DiscordCheckJob = $null
-            $Script:DiscordOk = $false
-            $Script:DiscordCheckAt = Get-Date
+    if ($DashPage -and $Script:UiState.ActivePage -ne $DashPage) {
+        if ($Script:DiscordOk -eq $true) {
+            $PillDiscord.Dot.ForeColor = $Ok
+            $PillDiscord.Value.Text = (T 'status_ok')
+        } elseif ($Script:DiscordOk -eq $false) {
+            $PillDiscord.Dot.ForeColor = $No
+            $PillDiscord.Value.Text = (T 'status_timeout')
         } else {
-            $PillDiscord.Dot.ForeColor = $Mid
-            $PillDiscord.Value.Text = (T 'status_testing')
-            return
+            $PillDiscord.Dot.ForeColor = $Muted
+            $PillDiscord.Value.Text = (T 'status_off')
         }
-    }
-
-    if (-not $Script:UiState.FormReady) {
-        $PillDiscord.Dot.ForeColor = $Muted
-        $PillDiscord.Value.Text = (T 'status_off')
         return
     }
 
     $now = Get-Date
     if (-not $Script:DiscordCheckAt -or ($now - $Script:DiscordCheckAt).TotalSeconds -gt 30) {
-        Start-AmfetaminDiscordReachabilityCheck
+        $Script:DiscordCheckAt = $now
         $PillDiscord.Dot.ForeColor = $Mid
         $PillDiscord.Value.Text = (T 'status_testing')
-        return
+        [System.Windows.Forms.Application]::DoEvents()
+        try { $Script:DiscordOk = Test-BypassTargetReachable -TimeoutSec 3 } catch { $Script:DiscordOk = $false }
     }
 
     if ($Script:DiscordOk -eq $true) {
@@ -670,11 +534,16 @@ function Update-AmfetaminDashboard {
 
         if ($s.EngineRunning -and $Script:UiState.FormReady) {
             Update-AmfetaminDiscordPill -PillDiscord $r.PillDiscord -EngineRunning $true `
-                -Ok $ok -No $no -Mid $mid -Muted $t.TextMuted
+                -Ok $ok -No $no -Mid $mid -Muted $t.TextMuted -DashPage $r.TabDash
         } else {
             Update-AmfetaminDiscordPill -PillDiscord $r.PillDiscord -EngineRunning $false `
-                -Ok $ok -No $no -Mid $mid -Muted $t.TextMuted
+                -Ok $ok -No $no -Mid $mid -Muted $t.TextMuted -DashPage $r.TabDash
         }
+
+        if ($s.ZeroTierRunning) {
+            try { Stop-ZeroTierIfRunning | Out-Null } catch {}
+        }
+        $r.WarnPanel.Visible = [bool](Test-ZeroTierRunning)
 
         if ($s.EngineRunning) {
             $r.LiveDot.Text = [char]0x25CF + (T 'live_on')
@@ -683,8 +552,6 @@ function Update-AmfetaminDashboard {
             $r.LiveDot.Text = [char]0x25CF + (T 'live_off')
             $r.LiveDot.ForeColor = $t.Danger
         }
-
-        $r.WarnPanel.Visible = [bool]$s.ZeroTierRunning
 
         $lines = @(
             (T 'info_version_line' $s.Version, $s.FakeTtl, $(if ($s.AutoTuneDone) { (T 'autotune_done') } else { (T 'autotune_pending') })),
@@ -730,21 +597,16 @@ function Load-AmfetaminSettings {
 function Invoke-AmfetaminUiAction {
     param(
         [scriptblock]$Action,
-        [string]$SuccessMsg = $null,
-        [switch]$Background
+        [string]$SuccessMsg = $null
     )
     $r = $Script:UiState.Refs
     $form = $Script:UiState.MainForm
     $t = $Script:AmfetaminTheme
-
-    $finish = {
-        param($result, $err)
-        if ($err) {
-            Write-AmfetaminError -Message 'UI islem hatasi' -Exception $err
-            Show-AmfetaminToast -Form $form -Bar $r.Toast -Message $err.Message -Color $t.Danger
-            [void][System.Windows.Forms.MessageBox]::Show($err.Message, (T 'app_name'), 'OK', 'Error')
-            return
-        }
+    $prevCursor = $form.Cursor
+    try {
+        try { $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor } catch {}
+        [System.Windows.Forms.Application]::DoEvents()
+        $result = & $Action
         Update-AmfetaminDashboard
         if ($SuccessMsg) {
             Show-AmfetaminToast -Form $form -Bar $r.Toast -Message $SuccessMsg -Color $t.Success
@@ -752,25 +614,12 @@ function Invoke-AmfetaminUiAction {
             Show-AmfetaminToast -Form $form -Bar $r.Toast -Message ($result.ToString().Split("`n")[0]) -Color $t.Success
         }
         Refresh-AmfetaminLogView
-    }
-
-    if ($Background) {
-        $prevCursor = $form.Cursor
-        try { $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor } catch {}
-        $bgFinish = {
-            param($result, $err)
-            try { $form.Cursor = $prevCursor } catch {}
-            & $finish $result $err
-        }
-        Start-AmfetaminBackgroundWorker -Work $Action -OnComplete $bgFinish | Out-Null
-        return
-    }
-
-    try {
-        $result = & $Action
-        & $finish $result $null
     } catch {
-        & $finish $null $_.Exception
+        Write-AmfetaminError -Message 'UI islem hatasi' -Exception $_.Exception
+        Show-AmfetaminToast -Form $form -Bar $r.Toast -Message $_.Exception.Message -Color $t.Danger
+        [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, (T 'app_name'), 'OK', 'Error')
+    } finally {
+        try { $form.Cursor = $prevCursor } catch {}
     }
 }
 
@@ -786,6 +635,8 @@ function Restore-AmfetaminMainWindow {
 
 function Show-AmfetaminMainForm {
     Install-AmfetaminUiExceptionHandler
+    try { Sync-LauncherToDevice } catch {}
+    try { Stop-ZeroTierIfRunning | Out-Null } catch {}
 
     $t = $Script:AmfetaminTheme
     $Script:DiscordCheckAt = $null
@@ -843,11 +694,11 @@ function Show-AmfetaminMainForm {
 
     $brand = New-Object System.Windows.Forms.Label
     $brand.Text = (T 'app_name')
-    $brand.Font = New-Object System.Drawing.Font('Segoe UI', 16, [System.Drawing.FontStyle]::Bold)
+    $brand.Font = New-Object System.Drawing.Font('Segoe UI', 15, [System.Drawing.FontStyle]::Bold)
     $brand.ForeColor = $t.Accent
     $brand.BackColor = $t.BgPanel
     $brand.AutoSize = $true
-    $brand.Location = New-Object System.Drawing.Point(18, 20)
+    $brand.Location = New-Object System.Drawing.Point(18, 18)
     $sidebar.Controls.Add($brand)
 
     $verLbl = New-Object System.Windows.Forms.Label
@@ -856,7 +707,7 @@ function Show-AmfetaminMainForm {
     $verLbl.ForeColor = $t.TextMuted
     $verLbl.BackColor = $t.BgPanel
     $verLbl.AutoSize = $true
-    $verLbl.Location = New-Object System.Drawing.Point(20, 48)
+    $verLbl.Location = New-Object System.Drawing.Point(20, 56)
     $sidebar.Controls.Add($verLbl)
 
     $liveDot = New-Object System.Windows.Forms.Label
@@ -1120,6 +971,7 @@ function Show-AmfetaminMainForm {
         LogBox      = $logBox
         LogAuto     = $logAuto
         TabLogs     = $tabLogs
+        TabDash     = $tabDash
         SetDoh      = $setDoh
         SetTtl      = $setTtl
         SetAutoTune = $setAutoTune
@@ -1129,7 +981,7 @@ function Show-AmfetaminMainForm {
         UpdateLbl   = $updateLbl
     }
 
-    $navY = 88
+    $navY = 96
     $navDash = New-NavButton -Text (T 'tab_dashboard') -Location (New-Object System.Drawing.Point(6, $navY)) -Sidebar $sidebar -Page $tabDash
     $navY += 44
     $navLogs = New-NavButton -Text (T 'tab_logs') -Location (New-Object System.Drawing.Point(6, $navY)) -Sidebar $sidebar -Page $tabLogs `
@@ -1174,55 +1026,45 @@ function Show-AmfetaminMainForm {
         $progressFn = {
             param($msg)
             $wLog.AppendText("> $msg`r`n")
+            [System.Windows.Forms.Application]::DoEvents()
         }
 
         $wiz.Add_Shown({
-            Start-AmfetaminBackgroundWorker -BusyControl $wiz -Work {
-                param($report)
-                Install-ToDevice -Progress $report
-            } -OnProgress {
-                param($msg)
-                $wLog.AppendText("> $msg`r`n")
-            } -OnComplete {
-                param($result, $err)
-                try {
-                    if ($err) { throw $err }
-                    $wBar.Style = 'Continuous'; $wBar.Value = 100
-                    $wLog.AppendText("`r`n$result`r`n")
-                    Write-AmfetaminLog -Message 'Kurulum wizard tamamlandi' -Level INFO
-                    Start-Sleep -Milliseconds 400
-                    [void][System.Windows.Forms.MessageBox]::Show($result, (T 'app_name'), 'OK', 'Information')
-                    $wiz.DialogResult = 'OK'
-                    $wiz.Close()
-                } catch {
-                    $wLog.AppendText("$(T 'wizard_error_prefix' $_.Exception.Message)`r`n")
-                    Write-AmfetaminError -Message 'Kurulum hatasi' -Exception $_.Exception
-                    [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, (T 'app_name'), 'OK', 'Error')
-                    $wiz.DialogResult = 'Cancel'
-                    $wiz.Close()
-                }
-                Update-AmfetaminDashboard
-                Refresh-AmfetaminLogView
-            } | Out-Null
+            try {
+                $result = Install-ToDevice -Progress $progressFn
+                $wBar.Style = 'Continuous'; $wBar.Value = 100
+                $wLog.AppendText("`r`n$result`r`n")
+                Write-AmfetaminLog -Message 'Kurulum wizard tamamlandi' -Level INFO
+                Start-Sleep -Milliseconds 400
+                [void][System.Windows.Forms.MessageBox]::Show($result, (T 'app_name'), 'OK', 'Information')
+                $wiz.DialogResult = 'OK'
+                $wiz.Close()
+            } catch {
+                $wLog.AppendText("$(T 'wizard_error_prefix' $_.Exception.Message)`r`n")
+                Write-AmfetaminError -Message 'Kurulum hatasi' -Exception $_.Exception
+                [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, (T 'app_name'), 'OK', 'Error')
+                $wiz.DialogResult = 'Cancel'
+                $wiz.Close()
+            }
         })
         Show-AmfetaminModalDialog -Dialog $wiz -Owner $form
         Update-AmfetaminDashboard
         Refresh-AmfetaminLogView
     })
 
-    $btnStart.Add_Click({ Invoke-AmfetaminUiAction -Background { Install-And-Start } })
+    $btnStart.Add_Click({ Invoke-AmfetaminUiAction { Install-And-Start } })
     $btnStop.Add_Click({ Invoke-AmfetaminUiAction { Stop-Amfetamin } })
-    $btnNpcap.Add_Click({ Invoke-AmfetaminUiAction -Background { Install-NpcapGui } })
+    $btnNpcap.Add_Click({ Invoke-AmfetaminUiAction { Install-NpcapGui } })
 
     $btnCleanup.Add_Click({
         $r = [System.Windows.Forms.MessageBox]::Show(
             (T 'msg_cleanup_confirm'),
             (T 'app_name'), 'YesNo', 'Warning')
-        if ($r -eq 'Yes') { Invoke-AmfetaminUiAction -Background { Invoke-AmfetaminCleanup } }
+        if ($r -eq 'Yes') { Invoke-AmfetaminUiAction { Invoke-AmfetaminCleanup } }
     })
 
     $btnTest.Add_Click({
-        Invoke-AmfetaminUiAction -Background {
+        Invoke-AmfetaminUiAction {
             $results = Test-AmfetaminConnectivity
             ($results | ForEach-Object {
                 $st = if ($_.Ok) { "OK $($_.StatusCode)" } else { 'FAIL' }
@@ -1253,26 +1095,20 @@ function Show-AmfetaminMainForm {
             $statusL.Location = New-Object System.Drawing.Point(24, 80)
             $wiz.Controls.Add($statusL)
             $wiz.Add_Shown({
-                Start-AmfetaminBackgroundWorker -BusyControl $wiz -Work {
-                    param($report)
-                    Invoke-ManualTtlRetune -Progress $report
-                } -OnProgress {
-                    param($msg)
-                    $statusL.Text = [string]$msg
-                } -OnComplete {
-                    param($result, $err)
-                    try {
-                        if ($err) { throw $err }
-                        [void][System.Windows.Forms.MessageBox]::Show($result, (T 'app_name'))
-                        $wiz.DialogResult = 'OK'
-                        $wiz.Close()
-                    } catch {
-                        [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, (T 'app_name'), 'OK', 'Error')
-                        $wiz.DialogResult = 'Cancel'
-                        $wiz.Close()
+                try {
+                    $msg = Invoke-ManualTtlRetune -Progress {
+                        param($m)
+                        $statusL.Text = $m
+                        [System.Windows.Forms.Application]::DoEvents()
                     }
-                    Update-AmfetaminDashboard
-                } | Out-Null
+                    [void][System.Windows.Forms.MessageBox]::Show($msg, (T 'app_name'))
+                    $wiz.DialogResult = 'OK'
+                    $wiz.Close()
+                } catch {
+                    [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, (T 'app_name'), 'OK', 'Error')
+                    $wiz.DialogResult = 'Cancel'
+                    $wiz.Close()
+                }
             })
             Show-AmfetaminModalDialog -Dialog $wiz -Owner $form
             Update-AmfetaminDashboard
@@ -1304,19 +1140,14 @@ function Show-AmfetaminMainForm {
 
     $btnDiagRun.Add_Click({
         $diagBox.Text = (T 'diag_running')
-        Start-AmfetaminBackgroundWorker -Work {
-            Get-AmfetaminDiagnosticReport -Quiet
-        } -OnComplete {
-            param($result, $err)
-            try {
-                if ($err) { throw $err }
-                $diagBox.Text = [string]$result
-                Write-AmfetaminLog -Message 'Teshis UI calistirildi' -Level INFO
-            } catch {
-                $diagBox.Text = $_.Exception.Message
-                Write-AmfetaminError -Message 'Teshis UI hatasi' -Exception $_.Exception
-            }
-        } | Out-Null
+        [System.Windows.Forms.Application]::DoEvents()
+        try {
+            $diagBox.Text = Get-AmfetaminDiagnosticReport -Quiet
+            Write-AmfetaminLog -Message 'Teshis UI calistirildi' -Level INFO
+        } catch {
+            $diagBox.Text = $_.Exception.Message
+            Write-AmfetaminError -Message 'Teshis UI hatasi' -Exception $_.Exception
+        }
     })
 
     $btnDiagSave.Add_Click({
@@ -1423,20 +1254,12 @@ function Show-AmfetaminMainForm {
     $form.Add_Shown({
         try {
             Select-AmfetaminNavPage -NavButton $navDash
+            Update-AmfetaminDashboard
             $Script:UiState.FormReady = $true
             if ($Script:UiState.StatusTimer) { $Script:UiState.StatusTimer.Start() }
             if ($Script:UiState.LogTimer) { $Script:UiState.LogTimer.Start() }
             Show-AmfetaminFormForeground -Form $form
             if ($Script:UiState.TrayIcon) { $Script:UiState.TrayIcon.Visible = $true }
-
-            Invoke-AmfetaminUiDeferred { Update-AmfetaminDashboard }
-
-            Start-AmfetaminBackgroundWorker -Work {
-                Sync-LauncherToDevice
-            } -OnComplete {
-                param($result, $err)
-                Invoke-AmfetaminUiDeferred { Update-AmfetaminDashboard }
-            } | Out-Null
 
             if ($env:AMFETAMIN_UI_TEST -eq '1') {
                 $result = [ordered]@{
@@ -1478,7 +1301,6 @@ function Show-AmfetaminMainForm {
     $form.Add_FormClosed({
         if ($Script:UiState.StatusTimer) { $Script:UiState.StatusTimer.Stop() }
         if ($Script:UiState.LogTimer) { $Script:UiState.LogTimer.Stop() }
-        Stop-AmfetaminDiscordReachabilityCheck
         if ($Script:UiState.TrayIcon) {
             $Script:UiState.TrayIcon.Visible = $false
             $Script:UiState.TrayIcon.Dispose()

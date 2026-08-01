@@ -110,6 +110,21 @@ function Test-ZeroTierRunning {
     return $null -ne (Get-Process -Name 'ZeroTier*' -ErrorAction SilentlyContinue)
 }
 
+function Stop-ZeroTierIfRunning {
+    $stopped = $false
+    Get-Process -Name 'ZeroTier*' -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            Stop-Process -Id $_.Id -Force -ErrorAction Stop
+            $stopped = $true
+        } catch {}
+    }
+    if ($stopped) {
+        Write-LauncherLog 'ZeroTier kapatildi'
+        Write-AmfetaminLog -Message 'ZeroTier otomatik kapatildi' -Level WARN -Audit
+    }
+    return $stopped
+}
+
 function Get-AmfetaminUpdateInfo {
     try {
         $cfg = Get-Config
