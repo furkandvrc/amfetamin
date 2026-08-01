@@ -4,7 +4,6 @@
 
 DPI bypass tool for macOS. TUN-based engine, automatic TTL tuning, and auto-start on boot.
 
-🌐 [English](README.md) · [Türkçe](README.tr.md)
 
 ## Requirements
 
@@ -37,7 +36,7 @@ Install also copies the menu bar app to `/Applications` and registers auto-start
 If the icon is missing:
 
 ```bash
-bash amfetamin status    # Uygulama should show kurulu
+bash amfetamin status    # App should show installed
 sudo bash amfetamin menubar
 ```
 
