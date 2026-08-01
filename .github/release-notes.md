@@ -7,6 +7,16 @@
 
 ---
 
+## v3.1.3
+
+### Windows
+- Fixed dashboard layout clipped under sidebar (WinForms dock order)
+- Button text visible again; first nav tab selected on open
+- UTF-8 loader for Turkish characters; no more mojibake in UI
+- Reduced window height and added page scroll for smaller screens
+
+---
+
 ## v3.1.2
 
 ### Windows

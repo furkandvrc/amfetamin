@@ -2,9 +2,15 @@
 # by furkandvrc
 $ErrorActionPreference = 'Stop'
 
+if ($PSScriptRoot) {
+    $env:AMFETAMIN_ROOT = $PSScriptRoot
+    $Script:AmfetaminProjectRoot = $PSScriptRoot
+}
+
 try {
-    . (Join-Path $PSScriptRoot 'lib\AmfetaminCore.ps1')
-    . (Join-Path $PSScriptRoot 'lib\AmfetaminUI.ps1')
+    . (Join-Path $PSScriptRoot 'lib\AmfetaminEncoding.ps1')
+    . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'lib\AmfetaminCore.ps1'))
+    . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'lib\AmfetaminUI.ps1'))
     Initialize-AmfetaminI18n
 
     Write-AmfetaminLog -Message 'amfetamin baslatildi' -Level INFO -Audit

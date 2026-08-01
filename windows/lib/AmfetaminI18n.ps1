@@ -1,5 +1,5 @@
 # amfetamin — UI i18n (en default, tr for Turkish locale)
-$Script:AmfetaminLang = 'en'
+if (-not $Script:AmfetaminLang) { $Script:AmfetaminLang = 'en' }
 
 $Script:AmfetaminStringsEn = @{
     app_name                          = 'amfetamin'

@@ -11,8 +11,17 @@ $Script:NpcapInstaller = Join-Path $BinDir 'npcap-installer.exe'
 $Script:ConfigPath = Join-Path $InstallRoot 'config.json'
 $Script:ServiceScript = Join-Path $LibDir 'run-amfetamin-service.ps1'
 
-. (Join-Path $PSScriptRoot 'AmfetaminLogger.ps1')
-. (Join-Path $PSScriptRoot 'AmfetaminI18n.ps1')
+if (-not $env:AMFETAMIN_ROOT -and $PSScriptRoot) {
+    if ($PSScriptRoot -match '\\lib$') {
+        $env:AMFETAMIN_ROOT = Split-Path $PSScriptRoot -Parent
+    } else {
+        $env:AMFETAMIN_ROOT = $PSScriptRoot
+    }
+    $Script:AmfetaminProjectRoot = $env:AMFETAMIN_ROOT
+}
+
+. (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminLogger.ps1'))
+. (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminI18n.ps1'))
 
 # Motor indirme (amfetamin engine v0.1.4)
 $Script:EngineVersion = 'engine-v0.1.4'
@@ -24,11 +33,16 @@ function Get-ProjectRoot {
     if ($env:AMFETAMIN_ROOT -and (Test-Path $env:AMFETAMIN_ROOT)) {
         return $env:AMFETAMIN_ROOT
     }
+    if ($Script:AmfetaminProjectRoot -and (Test-Path $Script:AmfetaminProjectRoot)) {
+        return $Script:AmfetaminProjectRoot
+    }
     if ($PSScriptRoot -match '\\lib$') {
         return Split-Path $PSScriptRoot -Parent
     }
     if ($PSScriptRoot) { return $PSScriptRoot }
-    return Split-Path -Parent $MyInvocation.MyCommand.Path
+    $caller = $MyInvocation.MyCommand.Path
+    if ($caller) { return Split-Path $caller -Parent }
+    return $Script:InstallRoot
 }
 
 function Get-Config {
@@ -656,6 +670,6 @@ function Save-AmfetaminSettings {
     return (T 'msg_settings_saved')
 }
 
-. (Join-Path $PSScriptRoot 'AmfetaminDiagnostics.ps1')
+. (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminDiagnostics.ps1'))
 
 Write-AmfetaminLog -Message 'AmfetaminCore yuklendi' -Level DEBUG
