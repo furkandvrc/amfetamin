@@ -15,7 +15,7 @@ function Get-ProjectRoot { $PSScriptRoot }
 function Sync-LauncherToDevice {}
 function Get-Config {
     @{
-        version = '3.1.5'
+        version = '3.1.6'
         dohUpstream = 'cloudflare'
         fakeTtl = 8
         autoTuneTtl = $true
@@ -33,7 +33,7 @@ function Get-AmfetaminStatus {
         InstallRoot = 'C:\Users\Test\AppData\Local\Amfetamin'
         FakeTtl = 8
         AutoTuneDone = $false
-        Version = '3.1.5'
+        Version = '3.1.6'
         Process = $null
         ZeroTierRunning = $false
     }
@@ -53,7 +53,7 @@ function Save-AmfetaminSettings { (T 'msg_settings_saved') }
 function Get-AmfetaminDiagnosticReport { param($Quiet) "=== MOCK DIAG ===`r`nOK" }
 function Save-AmfetaminDiagnosticReport { Join-Path $env:TEMP 'amfetamin-diag.txt' }
 function Ensure-Dirs { if (-not $Script:LogDir) { Initialize-AmfetaminLogging } }
-function Get-AmfetaminUpdateInfo { [PSCustomObject]@{ UpdateAvailable = $false; Current = '3.1.5'; Latest = '3.1.5' } }
+function Get-AmfetaminUpdateInfo { [PSCustomObject]@{ UpdateAvailable = $false; Current = '3.1.6'; Latest = '3.1.6' } }
 function Uninstall-FromDevice { (T 'msg_uninstalled') }
 
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'lib\AmfetaminUI.ps1'))

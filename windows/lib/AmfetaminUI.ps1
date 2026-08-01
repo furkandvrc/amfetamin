@@ -26,12 +26,32 @@ $Script:UiState = @{
     StatusTimer = $null
     LogTimer    = $null
     ToastTimer  = $null
+    ToastBar    = $null
     TrayIcon    = $null
     MainForm    = $null
     Refs        = $null
     FormReady   = $false
     NavButtons  = @()
     ActivePage  = $null
+}
+
+function Set-UiControlVisible {
+    param(
+        $Control,
+        [bool]$Visible
+    )
+    if (-not $Control) { return }
+    try {
+        if ($Control.PSObject.Properties['Visible']) {
+            $Control.Visible = $Visible
+        }
+    } catch {}
+}
+
+function Get-AmfetaminToastBar {
+    if ($Script:UiState.ToastBar) { return $Script:UiState.ToastBar }
+    if ($Script:UiState.Refs -and $Script:UiState.Refs.Toast) { return $Script:UiState.Refs.Toast }
+    return $null
 }
 
 function New-AmfetaminFont($size, $style = 'Regular') {
@@ -196,13 +216,13 @@ function Select-AmfetaminNavPage {
         $nb.Tag.ActiveBg = $false
         $nb.BackColor = $nb.Tag.Normal
         $nb.ForeColor = $theme.TextMuted
-        if ($nb.Tag.Page) { $nb.Tag.Page.Visible = $false }
+        if ($nb.Tag.Page) { Set-UiControlVisible $nb.Tag.Page $false }
     }
     $NavButton.Tag.ActiveBg = $true
     $NavButton.BackColor = $NavButton.Tag.Active
     $NavButton.ForeColor = $NavButton.Tag.Accent
     if ($NavButton.Tag.Page) {
-        $NavButton.Tag.Page.Visible = $true
+        Set-UiControlVisible $NavButton.Tag.Page $true
         $NavButton.Tag.Page.BringToFront()
         $Script:UiState.ActivePage = $NavButton.Tag.Page
     }
@@ -369,18 +389,20 @@ function Show-AmfetaminToast {
         [string]$Message,
         [System.Drawing.Color]$Color
     )
+    if (-not $Bar) { $Bar = Get-AmfetaminToastBar }
     if (-not $Bar) { return }
+    $Script:UiState.ToastBar = $Bar
     $Bar.Text = $Message
     $Bar.ForeColor = $Color
-    $Bar.Visible = $true
+    Set-UiControlVisible $Bar $true
     if ($Script:UiState.ToastTimer) {
         try { $Script:UiState.ToastTimer.Stop(); $Script:UiState.ToastTimer.Dispose() } catch {}
     }
     $Script:UiState.ToastTimer = New-Object System.Windows.Forms.Timer
     $Script:UiState.ToastTimer.Interval = 5000
     $Script:UiState.ToastTimer.Add_Tick({
-        $Bar.Visible = $false
-        $Script:UiState.ToastTimer.Stop()
+        Set-UiControlVisible $Script:UiState.ToastBar $false
+        if ($Script:UiState.ToastTimer) { $Script:UiState.ToastTimer.Stop() }
     })
     $Script:UiState.ToastTimer.Start()
     [System.Windows.Forms.Application]::DoEvents()
@@ -543,7 +565,7 @@ function Update-AmfetaminDashboard {
         if ($s.ZeroTierRunning) {
             try { Stop-ZeroTierIfRunning | Out-Null } catch {}
         }
-        $r.WarnPanel.Visible = [bool](Test-ZeroTierRunning)
+        Set-UiControlVisible $r.WarnPanel ([bool](Test-ZeroTierRunning))
 
         if ($s.EngineRunning) {
             $r.LiveDot.Text = [char]0x25CF + (T 'live_on')
@@ -602,6 +624,7 @@ function Invoke-AmfetaminUiAction {
     $r = $Script:UiState.Refs
     $form = $Script:UiState.MainForm
     $t = $Script:AmfetaminTheme
+    $toastBar = Get-AmfetaminToastBar
     $prevCursor = $form.Cursor
     try {
         try { $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor } catch {}
@@ -609,14 +632,14 @@ function Invoke-AmfetaminUiAction {
         $result = & $Action
         Update-AmfetaminDashboard
         if ($SuccessMsg) {
-            Show-AmfetaminToast -Form $form -Bar $r.Toast -Message $SuccessMsg -Color $t.Success
+            Show-AmfetaminToast -Form $form -Bar $toastBar -Message $SuccessMsg -Color $t.Success
         } elseif ($result) {
-            Show-AmfetaminToast -Form $form -Bar $r.Toast -Message ($result.ToString().Split("`n")[0]) -Color $t.Success
+            Show-AmfetaminToast -Form $form -Bar $toastBar -Message ($result.ToString().Split("`n")[0]) -Color $t.Success
         }
         Refresh-AmfetaminLogView
     } catch {
         Write-AmfetaminError -Message 'UI islem hatasi' -Exception $_.Exception
-        Show-AmfetaminToast -Form $form -Bar $r.Toast -Message $_.Exception.Message -Color $t.Danger
+        Show-AmfetaminToast -Form $form -Bar $toastBar -Message $_.Exception.Message -Color $t.Danger
         [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, (T 'app_name'), 'OK', 'Error')
     } finally {
         try { $form.Cursor = $prevCursor } catch {}
@@ -664,7 +687,8 @@ function Show-AmfetaminMainForm {
     $toast.BackColor = $t.BgCard
     $toast.ForeColor = $t.TextMuted
     $toast.Font = New-AmfetaminFont 9
-    $toast.Visible = $false
+    Set-UiControlVisible $toast $false
+    $Script:UiState.ToastBar = $toast
 
     $topAccent = New-Object System.Windows.Forms.Panel
     $topAccent.Dock = 'Top'
@@ -692,14 +716,20 @@ function Show-AmfetaminMainForm {
     $content.BackColor = $t.BgDeep
     $content.Padding = New-Object System.Windows.Forms.Padding(0, 0, 0, 0)
 
+    $sidebarHeader = New-Object System.Windows.Forms.Panel
+    $sidebarHeader.BackColor = $t.BgPanel
+    $sidebarHeader.Location = New-Object System.Drawing.Point(0, 0)
+    $sidebarHeader.Size = New-Object System.Drawing.Size(180, 82)
+    $sidebar.Controls.Add($sidebarHeader)
+
     $brand = New-Object System.Windows.Forms.Label
     $brand.Text = (T 'app_name')
     $brand.Font = New-Object System.Drawing.Font('Segoe UI', 15, [System.Drawing.FontStyle]::Bold)
     $brand.ForeColor = $t.Accent
     $brand.BackColor = $t.BgPanel
     $brand.AutoSize = $true
-    $brand.Location = New-Object System.Drawing.Point(18, 18)
-    $sidebar.Controls.Add($brand)
+    $brand.Location = New-Object System.Drawing.Point(18, 14)
+    $sidebarHeader.Controls.Add($brand)
 
     $verLbl = New-Object System.Windows.Forms.Label
     try { $verLbl.Text = "v$((Get-Config).version)" } catch { $verLbl.Text = 'v2.0.0' }
@@ -707,8 +737,8 @@ function Show-AmfetaminMainForm {
     $verLbl.ForeColor = $t.TextMuted
     $verLbl.BackColor = $t.BgPanel
     $verLbl.AutoSize = $true
-    $verLbl.Location = New-Object System.Drawing.Point(20, 56)
-    $sidebar.Controls.Add($verLbl)
+    $verLbl.Location = New-Object System.Drawing.Point(20, 52)
+    $sidebarHeader.Controls.Add($verLbl)
 
     $liveDot = New-Object System.Windows.Forms.Label
     $liveDot.Text = [char]0x25CF + (T 'live_off')
@@ -981,7 +1011,7 @@ function Show-AmfetaminMainForm {
         UpdateLbl   = $updateLbl
     }
 
-    $navY = 96
+    $navY = 92
     $navDash = New-NavButton -Text (T 'tab_dashboard') -Location (New-Object System.Drawing.Point(6, $navY)) -Sidebar $sidebar -Page $tabDash
     $navY += 44
     $navLogs = New-NavButton -Text (T 'tab_logs') -Location (New-Object System.Drawing.Point(6, $navY)) -Sidebar $sidebar -Page $tabLogs `
@@ -1307,6 +1337,7 @@ function Show-AmfetaminMainForm {
         }
         $Script:UiState.MainForm = $null
         $Script:UiState.Refs = $null
+        $Script:UiState.ToastBar = $null
         $Script:UiState.FormReady = $false
         Write-AmfetaminLog -Message 'Ana pencere kapatildi' -Level INFO -Audit
     })

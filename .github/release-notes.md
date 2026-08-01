@@ -7,14 +7,12 @@
 
 ---
 
-## What's new in v3.1.5
+## What's new in v3.1.6
 
 ### Windows
-- Fixed Runspace crash when clicking **Start** (removed broken background worker)
-- Engine status no longer shows active when only the UI launcher is running
-- ZeroTier is closed automatically on startup and before engine install/start
-- Fixed version label clipped under the sidebar logo
-- Install and TTL tuning run in the foreground with live progress updates
+- Fixed repeated **Visible property** error after Start / Install actions
+- Toast notifications use a stable control reference (no more null toast bar)
+- Sidebar logo and version label no longer overlap
 
 ---
 

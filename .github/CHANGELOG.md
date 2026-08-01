@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.1.6
+
+### Windows
+- Fixed repeated **Visible property** error after Start / Install actions
+- Toast notifications use a stable control reference (no more null toast bar)
+- Sidebar logo and version label no longer overlap
+
 ## v3.1.5
 
 ### Windows
