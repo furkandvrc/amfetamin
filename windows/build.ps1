@@ -66,8 +66,11 @@ $iconFile = Ensure-AmfetaminIco
 $logger = Get-Content (Join-Path $root 'lib\AmfetaminLogger.ps1') -Raw -Encoding UTF8
 $i18n = Get-Content (Join-Path $root 'lib\AmfetaminI18n.ps1') -Raw -Encoding UTF8
 $diagnostics = Get-Content (Join-Path $root 'lib\AmfetaminDiagnostics.ps1') -Raw -Encoding UTF8
+$encoding = Get-Content (Join-Path $root 'lib\AmfetaminEncoding.ps1') -Raw -Encoding UTF8
 $core = Get-Content (Join-Path $root 'lib\AmfetaminCore.ps1') -Raw -Encoding UTF8
 $ui = Get-Content (Join-Path $root 'lib\AmfetaminUI.ps1') -Raw -Encoding UTF8
+$core = $core -replace "`r?`n", "`r`n"
+$ui = $ui -replace "`r?`n", "`r`n"
 # Bundle icinde dis dosya dot-source calismaz — inline yukle
 $core = $core -replace "\.\s*\(Get-AmfetaminUtf8ScriptBlock\s+\(Join-Path\s+\`$PSScriptRoot\s+'AmfetaminLogger\.ps1'\)\)\s*\r?\n", ''
 $core = $core -replace "\.\s*\(Get-AmfetaminUtf8ScriptBlock\s+\(Join-Path\s+\`$PSScriptRoot\s+'AmfetaminI18n\.ps1'\)\)\s*\r?\n", ''
@@ -78,10 +81,25 @@ $core = $core -replace "Import-AmfetaminUtf8Script\s+\(Join-Path\s+\`$PSScriptRo
 $core = $core -replace "\.\s*\(Join-Path\s+\`$PSScriptRoot\s+'AmfetaminLogger\.ps1'\)\s*\r?\n", ''
 $core = $core -replace "\.\s*\(Join-Path\s+\`$PSScriptRoot\s+'AmfetaminI18n\.ps1'\)\s*\r?\n", ''
 $core = $core -replace "\.\s*\(Join-Path\s+\`$PSScriptRoot\s+'AmfetaminDiagnostics\.ps1'\)\s*\r?\n", ''
+$core = $core.Replace("if (-not (Get-Command Get-AmfetaminUtf8ScriptBlock -ErrorAction SilentlyContinue)) {`r`n    if (-not [string]::IsNullOrWhiteSpace(`$PSScriptRoot)) {`r`n        `$encodingPath = Join-Path `$PSScriptRoot 'AmfetaminEncoding.ps1'`r`n        if (Test-Path -LiteralPath `$encodingPath) { . `$encodingPath }`r`n    }`r`n}`r`n`r`n", '')
+$core = $core.Replace("if (-not (Get-Command Get-AmfetaminDiagnosticReport -ErrorAction SilentlyContinue)) {`r`n    if (Get-Command Get-AmfetaminUtf8ScriptBlock -ErrorAction SilentlyContinue) {`r`n        `$diagPath = Join-Path `$PSScriptRoot 'AmfetaminDiagnostics.ps1'`r`n        if (-not [string]::IsNullOrWhiteSpace(`$diagPath) -and (Test-Path -LiteralPath `$diagPath)) {`r`n            . (Get-AmfetaminUtf8ScriptBlock `$diagPath)`r`n        }`r`n    }`r`n}`r`n`r`n", '')
 $ui = $ui -replace "(?ms)^if\s+\(-not\s+\(Get-Command T[^\r\n]+\r?\n\s*\.\s*\(Get-AmfetaminUtf8ScriptBlock[^\r\n]+\r?\n\}\r?\n", ''
 $ui = $ui -replace "\.\s*\(Get-AmfetaminUtf8ScriptBlock\s+\(Join-Path\s+\`$PSScriptRoot\s+'AmfetaminI18n\.ps1'\)\)\s*\r?\n", ''
 $ui = $ui -replace "Import-AmfetaminUtf8Script\s+\(Join-Path\s+\`$PSScriptRoot\s+'AmfetaminI18n\.ps1'\)\s*\r?\n", ''
 $ui = $ui -replace "\.\s*\(Join-Path\s+\`$PSScriptRoot\s+'AmfetaminI18n\.ps1'\)\s*\r?\n", ''
+
+$embedLines = New-Object System.Collections.Generic.List[string]
+[void]$embedLines.Add('$Script:EmbeddedLibFiles = @{}')
+Get-ChildItem (Join-Path $root 'lib') -File | Sort-Object Name | ForEach-Object {
+    $bytes = [Text.Encoding]::UTF8.GetBytes((Get-Content $_.FullName -Raw -Encoding UTF8))
+    $b64 = [Convert]::ToBase64String($bytes)
+    [void]$embedLines.Add("$([char]36)Script:EmbeddedLibFiles['$($_.Name)'] = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$b64'))")
+}
+$configBytes = [Text.Encoding]::UTF8.GetBytes((Get-Content (Join-Path $root 'config.json') -Raw -Encoding UTF8))
+$configB64 = [Convert]::ToBase64String($configBytes)
+[void]$embedLines.Add("$([char]36)Script:EmbeddedConfigJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$configB64'))")
+$embeddedLib = $embedLines -join "`r`n"
+
 $main = @'
 $ErrorActionPreference = 'Stop'
 try {
@@ -106,7 +124,7 @@ try {
 }
 '@
 
-$bundleText = @('# amfetamin v2 bundle - by furkandvrc', $logger, $i18n, $diagnostics, $core, $ui, $main) -join "`r`n"
+$bundleText = @('# amfetamin v2 bundle - by furkandvrc', $embeddedLib, $encoding, $logger, $i18n, $diagnostics, $core, $ui, $main) -join "`r`n"
 [System.IO.File]::WriteAllText($bundle, $bundleText, (New-Object System.Text.UTF8Encoding $false))
 
 $scriptText = Get-Content $bundle -Raw -Encoding UTF8

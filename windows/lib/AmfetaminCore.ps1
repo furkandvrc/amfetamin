@@ -3,13 +3,14 @@ $ErrorActionPreference = 'Stop'
 
 $Script:TaskName = 'Amfetamin-AutoStart'
 $Script:InstallRoot = Join-Path $env:LOCALAPPDATA 'Amfetamin'
-$Script:BinDir = Join-Path $InstallRoot 'bin'
-$Script:LogDir = Join-Path $InstallRoot 'logs'
-$Script:LibDir = Join-Path $InstallRoot 'lib'
-$Script:EngineExe = Join-Path $BinDir 'amfetamin.exe'
-$Script:NpcapInstaller = Join-Path $BinDir 'npcap-installer.exe'
-$Script:ConfigPath = Join-Path $InstallRoot 'config.json'
-$Script:ServiceScript = Join-Path $LibDir 'run-amfetamin-service.ps1'
+$Script:BinDir = Join-Path $Script:InstallRoot 'bin'
+$Script:LogDir = Join-Path $Script:InstallRoot 'logs'
+$Script:LibDir = Join-Path $Script:InstallRoot 'lib'
+$Script:EngineExe = Join-Path $Script:BinDir 'amfetamin.exe'
+$Script:NpcapInstaller = Join-Path $Script:BinDir 'npcap-installer.exe'
+$Script:ConfigPath = Join-Path $Script:InstallRoot 'config.json'
+$Script:ServiceScript = Join-Path $Script:LibDir 'run-amfetamin-service.ps1'
+if ($null -eq $Script:EmbeddedLibFiles) { $Script:EmbeddedLibFiles = @{} }
 
 if (-not $env:AMFETAMIN_ROOT -and $PSScriptRoot) {
     if ($PSScriptRoot -match '\\lib$') {
@@ -21,8 +22,10 @@ if (-not $env:AMFETAMIN_ROOT -and $PSScriptRoot) {
 }
 
 if (-not (Get-Command Get-AmfetaminUtf8ScriptBlock -ErrorAction SilentlyContinue)) {
-    $encodingPath = Join-Path $PSScriptRoot 'AmfetaminEncoding.ps1'
-    if (Test-Path $encodingPath) { . $encodingPath }
+    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        $encodingPath = Join-Path $PSScriptRoot 'AmfetaminEncoding.ps1'
+        if (Test-Path -LiteralPath $encodingPath) { . $encodingPath }
+    }
 }
 
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminLogger.ps1'))
@@ -196,8 +199,11 @@ function Invoke-ManualTtlRetune {
 }
 
 function Ensure-Dirs {
-    foreach ($d in @($InstallRoot, $BinDir, $LogDir, $LibDir)) {
-        if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+    foreach ($d in @($Script:InstallRoot, $Script:BinDir, $Script:LogDir, $Script:LibDir)) {
+        if ([string]::IsNullOrWhiteSpace($d)) { continue }
+        if (-not (Test-Path -LiteralPath $d)) {
+            New-Item -ItemType Directory -Path $d -Force | Out-Null
+        }
     }
 }
 
@@ -213,17 +219,22 @@ function Get-PowerShellPath {
 
 function Get-LauncherPath {
     $root = Get-ProjectRoot
-    $exe = Join-Path $root 'Amfetamin.exe'
-    if (Test-Path $exe) { return $exe }
-    $ps1 = Join-Path $root 'Amfetamin.ps1'
-    if (Test-Path $ps1) { return $ps1 }
-    return $MyInvocation.MyCommand.Path
+    if (-not [string]::IsNullOrWhiteSpace($root)) {
+        $exe = Join-Path $root 'Amfetamin.exe'
+        if (-not [string]::IsNullOrWhiteSpace($exe) -and (Test-Path -LiteralPath $exe)) { return $exe }
+        $ps1 = Join-Path $root 'Amfetamin.ps1'
+        if (-not [string]::IsNullOrWhiteSpace($ps1) -and (Test-Path -LiteralPath $ps1)) { return $ps1 }
+    }
+    $caller = $MyInvocation.MyCommand.Path
+    if (-not [string]::IsNullOrWhiteSpace($caller)) { return $caller }
+    return $null
 }
 
 function Request-Admin([string[]]$ExtraArgs) {
     if (Test-IsAdmin) { return $true }
     Write-AmfetaminLog -Message 'Yonetici yetkisi isteniyor' -Level INFO -Audit
     $launcher = Get-LauncherPath
+    if ([string]::IsNullOrWhiteSpace($launcher)) { throw (T 'err_launcher_not_found') }
     $root = Get-ProjectRoot
     if ($launcher -like '*.exe') {
         Start-Process -FilePath $launcher -Verb RunAs -WorkingDirectory $root
@@ -251,7 +262,7 @@ function Stop-LegacyEngine {
         Get-Process -Name $legacyName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     }
     foreach ($legacyFile in @('engine-old.exe')) {
-        $p = Join-Path $BinDir $legacyFile
+        $p = Join-Path $Script:BinDir $legacyFile
         if (Test-Path $p) { Remove-Item $p -Force -ErrorAction SilentlyContinue }
     }
 }
@@ -322,11 +333,11 @@ function Install-EngineBinary {
     Ensure-Dirs
     Stop-LegacyEngine
     $base = "$($Script:EngineReleaseBase)/$($Script:EngineVersion)"
-    Invoke-DownloadFile "$base/$($Script:EngineChecksumFile)" (Join-Path $BinDir 'checksums.txt')
-    $tmp = Join-Path $BinDir '_download.tmp'
+    Invoke-DownloadFile "$base/$($Script:EngineChecksumFile)" (Join-Path $Script:BinDir 'checksums.txt')
+    $tmp = Join-Path $Script:BinDir '_download.tmp'
     Invoke-DownloadFile "$base/$($Script:EngineRemoteAsset)" $tmp
 
-    $expectedLine = Get-Content (Join-Path $BinDir 'checksums.txt') | Where-Object { $_ -match [regex]::Escape($Script:EngineRemoteAsset) }
+    $expectedLine = Get-Content (Join-Path $Script:BinDir 'checksums.txt') | Where-Object { $_ -match [regex]::Escape($Script:EngineRemoteAsset) }
     if (-not $expectedLine) { throw (T 'err_checksum_engine_not_found') }
     $expectedHash = ($expectedLine -split '\s+')[0].ToUpperInvariant()
     $actualHash = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToUpperInvariant()
@@ -347,17 +358,41 @@ function Ensure-EngineBinary {
 function Sync-LauncherToDevice {
     Ensure-Dirs
     $projectRoot = Get-ProjectRoot
-    Copy-Item (Join-Path $projectRoot 'config.json') $Script:ConfigPath -Force
-    foreach ($libFile in @('AmfetaminEncoding.ps1', 'AmfetaminCore.ps1', 'AmfetaminLogger.ps1', 'AmfetaminI18n.ps1', 'AmfetaminDiagnostics.ps1', 'AmfetaminUI.ps1', 'run-amfetamin-service.ps1')) {
+    $libFiles = @(
+        'AmfetaminEncoding.ps1', 'AmfetaminCore.ps1', 'AmfetaminLogger.ps1', 'AmfetaminI18n.ps1',
+        'AmfetaminDiagnostics.ps1', 'AmfetaminUI.ps1', 'run-amfetamin-service.ps1'
+    )
+
+    $configSrc = Join-Path $projectRoot 'config.json'
+    if (-not [string]::IsNullOrWhiteSpace($configSrc) -and (Test-Path -LiteralPath $configSrc)) {
+        Copy-Item -LiteralPath $configSrc -Destination $Script:ConfigPath -Force
+    } elseif ($Script:EmbeddedConfigJson) {
+        [System.IO.File]::WriteAllText($Script:ConfigPath, $Script:EmbeddedConfigJson, (New-Object System.Text.UTF8Encoding $false))
+    } else {
+        throw (T 'err_config_not_found')
+    }
+
+    $copied = 0
+    foreach ($libFile in $libFiles) {
+        $dest = Join-Path $Script:LibDir $libFile
         $src = Join-Path $projectRoot "lib\$libFile"
-        if (Test-Path $src) {
-            Copy-Item $src (Join-Path $LibDir $libFile) -Force
+        if (-not [string]::IsNullOrWhiteSpace($src) -and (Test-Path -LiteralPath $src)) {
+            Copy-Item -LiteralPath $src -Destination $dest -Force
+            $copied++
+        } elseif ($Script:EmbeddedLibFiles -and $Script:EmbeddedLibFiles.ContainsKey($libFile)) {
+            [System.IO.File]::WriteAllText($dest, $Script:EmbeddedLibFiles[$libFile], (New-Object System.Text.UTF8Encoding $false))
+            $copied++
         }
     }
+
+    if ($copied -lt $libFiles.Count) {
+        throw (T 'err_lib_sync_failed' $copied, $libFiles.Count)
+    }
+
     foreach ($icoName in @('amfetamin.ico', (Join-Path 'assets' 'amfetamin.ico'))) {
         $icoSrc = Join-Path $projectRoot $icoName
-        if (Test-Path $icoSrc) {
-            Copy-Item $icoSrc (Join-Path $InstallRoot 'amfetamin.ico') -Force
+        if (-not [string]::IsNullOrWhiteSpace($icoSrc) -and (Test-Path -LiteralPath $icoSrc)) {
+            Copy-Item -LiteralPath $icoSrc -Destination (Join-Path $Script:InstallRoot 'amfetamin.ico') -Force
             break
         }
     }
@@ -463,6 +498,7 @@ function Start-AmfetaminHidden {
     Stop-ZeroTierIfRunning | Out-Null
     Ensure-EngineBinary
     Stop-LegacyEngine
+    if (-not $Script:RunLog) { Initialize-AmfetaminLogging }
     if (Test-AmfetaminRunning) {
         if ($FakeTtlOverride -le 0) { return (T 'msg_engine_already_running') }
         Stop-Amfetamin | Out-Null
@@ -472,7 +508,7 @@ function Start-AmfetaminHidden {
     $argParams = @{}
     if ($FakeTtlOverride -gt 0) { $argParams.FakeTtlOverride = $FakeTtlOverride }
     $args = Get-EngineRunArgs @argParams
-    $proc = Start-Process -FilePath $Script:EngineExe -ArgumentList $args -WorkingDirectory $BinDir `
+    $proc = Start-Process -FilePath $Script:EngineExe -ArgumentList $args -WorkingDirectory $Script:BinDir `
         -WindowStyle Hidden -PassThru -RedirectStandardError $Script:RunLog
     Start-Sleep -Seconds 2
     if (-not $proc.HasExited -and (Test-AmfetaminRunning)) {
@@ -503,7 +539,7 @@ function Start-AmfetaminVisible {
     $upstream = [string]$cfg.dohUpstream
     $batch = @"
 @echo off
-cd /d "$BinDir"
+cd /d "$($Script:BinDir)"
 title amfetamin
 echo amfetamin calisiyor. Kapatmak icin Ctrl+C
 "$EngineExe" run --doh-upstream "$upstream"$(
@@ -513,7 +549,7 @@ echo amfetamin calisiyor. Kapatmak icin Ctrl+C
 )
 pause
 "@
-    $batchPath = Join-Path $BinDir 'start-amfetamin-visible.cmd'
+    $batchPath = Join-Path $Script:BinDir 'start-amfetamin-visible.cmd'
     Set-Content -Path $batchPath -Value $batch -Encoding ASCII
     Start-Process cmd.exe -ArgumentList "/c `"$batchPath`"" -Verb RunAs
     Start-Sleep -Seconds 2
@@ -568,7 +604,7 @@ function Invoke-AmfetaminCleanup {
     Reset-SystemDnsIfNeeded
     $messages += (T 'msg_dns_checked')
 
-    $batchPath = Join-Path $BinDir 'start-amfetamin-visible.cmd'
+    $batchPath = Join-Path $Script:BinDir 'start-amfetamin-visible.cmd'
     if (Test-Path $batchPath) {
         Remove-Item $batchPath -Force -ErrorAction SilentlyContinue
         $messages += (T 'msg_temp_script_deleted')
@@ -599,7 +635,7 @@ function Register-AutoStartTask {
     $taskUser = Get-TaskUserId
     $psExe = (Get-Command powershell.exe).Source
     $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Script:ServiceScript`""
-    $action = New-ScheduledTaskAction -Execute $psExe -Argument $arg -WorkingDirectory $InstallRoot
+    $action = New-ScheduledTaskAction -Execute $psExe -Argument $arg -WorkingDirectory $Script:InstallRoot
     $triggerLogon = New-ScheduledTaskTrigger -AtLogOn -User $taskUser
     $triggerLogon.Delay = 'PT45S'
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
@@ -664,7 +700,7 @@ function Install-ToDevice {
         (T 'install_complete_title'),
         (T 'install_complete_autostart'),
         (T 'install_complete_running'),
-        (T 'install_complete_location' $InstallRoot),
+        (T 'install_complete_location' $Script:InstallRoot),
         $(if ($ttlInfo) { (T 'install_complete_ttl' $ttlInfo) }),
         '',
         (T 'install_discord_hint_header'),
@@ -710,6 +746,13 @@ function Save-AmfetaminSettings {
     return (T 'msg_settings_saved')
 }
 
-. (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminDiagnostics.ps1'))
+if (-not (Get-Command Get-AmfetaminDiagnosticReport -ErrorAction SilentlyContinue)) {
+    if (Get-Command Get-AmfetaminUtf8ScriptBlock -ErrorAction SilentlyContinue) {
+        $diagPath = Join-Path $PSScriptRoot 'AmfetaminDiagnostics.ps1'
+        if (-not [string]::IsNullOrWhiteSpace($diagPath) -and (Test-Path -LiteralPath $diagPath)) {
+            . (Get-AmfetaminUtf8ScriptBlock $diagPath)
+        }
+    }
+}
 
 Write-AmfetaminLog -Message 'AmfetaminCore yuklendi' -Level DEBUG

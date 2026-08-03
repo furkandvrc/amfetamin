@@ -65,7 +65,7 @@ function New-AmfetaminFont($size, $style = 'Regular') {
 function Get-AmfetaminIcon {
     if ($Script:AmfetaminIcon) { return $Script:AmfetaminIcon }
     $launcher = Get-LauncherPath
-    if ($launcher -like '*.exe' -and (Test-Path $launcher)) {
+    if (-not [string]::IsNullOrWhiteSpace($launcher) -and $launcher -like '*.exe' -and (Test-Path -LiteralPath $launcher)) {
         try {
             $Script:AmfetaminIcon = [System.Drawing.Icon]::ExtractAssociatedIcon($launcher)
             if ($Script:AmfetaminIcon) { return $Script:AmfetaminIcon }
@@ -74,7 +74,7 @@ function Get-AmfetaminIcon {
     $root = Get-ProjectRoot
     foreach ($name in @('amfetamin.ico', (Join-Path 'assets' 'amfetamin.ico'))) {
         $path = Join-Path $root $name
-        if (Test-Path $path) {
+        if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path -LiteralPath $path)) {
             $Script:AmfetaminIcon = New-Object System.Drawing.Icon($path)
             return $Script:AmfetaminIcon
         }
@@ -658,7 +658,9 @@ function Restore-AmfetaminMainWindow {
 
 function Show-AmfetaminMainForm {
     Install-AmfetaminUiExceptionHandler
-    try { Sync-LauncherToDevice } catch {}
+    try { Sync-LauncherToDevice } catch {
+        Write-AmfetaminLog -Message "Baslangic senkronizasyonu atlandi: $($_.Exception.Message)" -Level WARN
+    }
     try { Stop-ZeroTierIfRunning | Out-Null } catch {}
 
     $t = $Script:AmfetaminTheme

@@ -6,7 +6,7 @@ $BootLog = Join-Path (Join-Path $env:LOCALAPPDATA 'Amfetamin\logs') 'service-boo
 function Write-BootLog([string]$Message) {
     try {
         $dir = Split-Path $BootLog -Parent
-        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
         Add-Content -Path $BootLog -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" -Encoding UTF8
     } catch {}
 }
@@ -15,7 +15,12 @@ try {
     Write-BootLog 'Gorev basladi'
     . (Join-Path $LibDir 'AmfetaminEncoding.ps1')
     . (Join-Path $LibDir 'AmfetaminCore.ps1')
-    Initialize-AmfetaminI18n
+    if (Get-Command Initialize-AmfetaminI18n -ErrorAction SilentlyContinue) {
+        Initialize-AmfetaminI18n
+    }
+    if (Get-Command Initialize-AmfetaminLogging -ErrorAction SilentlyContinue) {
+        Initialize-AmfetaminLogging
+    }
 } catch {
     Write-BootLog "Bootstrap hatasi: $($_.Exception.Message)"
     exit 1
@@ -35,6 +40,7 @@ function Ensure-AmfetaminRunning {
         }
         Stop-LegacyEngine
         Ensure-EngineBinary
+        if (-not $Script:RunLog) { Initialize-AmfetaminLogging }
         $args = Get-EngineRunArgs
         Start-Process -FilePath $Script:EngineExe -ArgumentList $args -WorkingDirectory $Script:BinDir `
             -WindowStyle Hidden -RedirectStandardError $Script:RunLog

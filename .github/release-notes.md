@@ -7,18 +7,16 @@
 
 ---
 
-## What's new in v3.1.7
+## What's new in v3.1.8
 
 ### Windows
-- Fixed auto-start on login (Task Scheduler bootstrap was failing silently)
-- Service script loads core modules correctly at boot
-- Scheduled task runs 45 seconds after logon (network/Npcap ready)
-- `AmfetaminEncoding.ps1` included in device install
+- Fixed broken exe bundle (core functions like `Test-IsAdmin` were missing from build)
+- Device sync now works even without a `lib/` folder beside the exe (embedded library fallback)
+- Sync fails loudly if library files cannot be written (no more silent skip)
+- Service script bootstrap and encoding loader hardened
 
 ### macOS
-- CLI-only install (`sudo bash amfetamin install`)
-- Menu bar build and install improvements
-- LF line endings in release zip
+- No changes in this release
 
 ---
 
