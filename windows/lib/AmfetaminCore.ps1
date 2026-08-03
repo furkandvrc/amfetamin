@@ -20,6 +20,11 @@ if (-not $env:AMFETAMIN_ROOT -and $PSScriptRoot) {
     $Script:AmfetaminProjectRoot = $env:AMFETAMIN_ROOT
 }
 
+if (-not (Get-Command Get-AmfetaminUtf8ScriptBlock -ErrorAction SilentlyContinue)) {
+    $encodingPath = Join-Path $PSScriptRoot 'AmfetaminEncoding.ps1'
+    if (Test-Path $encodingPath) { . $encodingPath }
+}
+
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminLogger.ps1'))
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminI18n.ps1'))
 
@@ -343,7 +348,7 @@ function Sync-LauncherToDevice {
     Ensure-Dirs
     $projectRoot = Get-ProjectRoot
     Copy-Item (Join-Path $projectRoot 'config.json') $Script:ConfigPath -Force
-    foreach ($libFile in @('AmfetaminCore.ps1', 'AmfetaminLogger.ps1', 'AmfetaminI18n.ps1', 'AmfetaminDiagnostics.ps1', 'AmfetaminUI.ps1', 'run-amfetamin-service.ps1')) {
+    foreach ($libFile in @('AmfetaminEncoding.ps1', 'AmfetaminCore.ps1', 'AmfetaminLogger.ps1', 'AmfetaminI18n.ps1', 'AmfetaminDiagnostics.ps1', 'AmfetaminUI.ps1', 'run-amfetamin-service.ps1')) {
         $src = Join-Path $projectRoot "lib\$libFile"
         if (Test-Path $src) {
             Copy-Item $src (Join-Path $LibDir $libFile) -Force
@@ -596,14 +601,16 @@ function Register-AutoStartTask {
     $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Script:ServiceScript`""
     $action = New-ScheduledTaskAction -Execute $psExe -Argument $arg -WorkingDirectory $InstallRoot
     $triggerLogon = New-ScheduledTaskTrigger -AtLogOn -User $taskUser
-    $triggerBoot = New-ScheduledTaskTrigger -AtStartup
+    $triggerLogon.Delay = 'PT45S'
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-        -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
+        -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) `
+        -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
     $principal = New-ScheduledTaskPrincipal -UserId $taskUser -RunLevel Highest -LogonType Interactive
 
-    Register-ScheduledTask -TaskName $Script:TaskName -Action $action -Trigger @($triggerLogon, $triggerBoot) `
+    Register-ScheduledTask -TaskName $Script:TaskName -Action $action -Trigger $triggerLogon `
         -Settings $settings -Principal $principal -Description 'amfetamin otomatik baslatma' | Out-Null
-    Write-LauncherLog "Zamanlanmis gorev olusturuldu ($taskUser)"
+    Enable-ScheduledTask -TaskName $Script:TaskName | Out-Null
+    Write-LauncherLog "Zamanlanmis gorev olusturuldu ($taskUser, 45sn gecikme)"
     Write-AmfetaminLog -Message "Otomatik baslatma gorevi olusturuldu ($taskUser)" -Level INFO -Audit
 }
 

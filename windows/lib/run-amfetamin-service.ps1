@@ -1,6 +1,25 @@
 # amfetamin otomatik baslatma (Task Scheduler)
-$ErrorActionPreference = 'SilentlyContinue'
-. (Join-Path $PSScriptRoot 'AmfetaminCore.ps1')
+$ErrorActionPreference = 'Stop'
+$LibDir = $PSScriptRoot
+$BootLog = Join-Path (Join-Path $env:LOCALAPPDATA 'Amfetamin\logs') 'service-boot.log'
+
+function Write-BootLog([string]$Message) {
+    try {
+        $dir = Split-Path $BootLog -Parent
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        Add-Content -Path $BootLog -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" -Encoding UTF8
+    } catch {}
+}
+
+try {
+    Write-BootLog 'Gorev basladi'
+    . (Join-Path $LibDir 'AmfetaminEncoding.ps1')
+    . (Join-Path $LibDir 'AmfetaminCore.ps1')
+    Initialize-AmfetaminI18n
+} catch {
+    Write-BootLog "Bootstrap hatasi: $($_.Exception.Message)"
+    exit 1
+}
 
 function Ensure-AmfetaminRunning {
     try {
@@ -21,7 +40,7 @@ function Ensure-AmfetaminRunning {
             -WindowStyle Hidden -RedirectStandardError $Script:RunLog
         Start-Sleep -Seconds 3
         if (Test-AmfetaminRunning) {
-            Invoke-EngineWarmup
+            Invoke-EngineWarmup -NonBlocking
             Write-ServiceLog 'amfetamin baslatildi (otomatik)'
             Write-AmfetaminLog -Message 'Otomatik baslatma basarili' -Level INFO -Audit
         } else {
@@ -31,6 +50,7 @@ function Ensure-AmfetaminRunning {
     } catch {
         Write-ServiceLog "Hata: $($_.Exception.Message)"
         Write-AmfetaminError -Message 'Otomatik baslatma hatasi' -Exception $_.Exception
+        Write-BootLog "Calistirma hatasi: $($_.Exception.Message)"
     }
 }
 

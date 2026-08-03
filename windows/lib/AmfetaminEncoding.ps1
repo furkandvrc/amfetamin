@@ -15,6 +15,7 @@ function Get-AmfetaminUtf8ScriptBlock {
 
 function Import-AmfetaminUtf8Script {
     param([Parameter(Mandatory)][string]$Path)
+    # Script dosyasi seviyesinden cagirin; fonksiyon icinden . scriptblock scope kaybeder.
     . (Get-AmfetaminUtf8ScriptBlock $Path)
 }
 
