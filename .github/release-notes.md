@@ -3,16 +3,22 @@
 | Platform | File | Install |
 |----------|------|---------|
 | **Windows** | `amfetamin-windows.zip` | Run `Amfetamin.exe`, then click **Install to device** |
-| **macOS** | `amfetamin-macos.zip` | `chmod +x setup.sh amfetamin diagnose.sh lib/*.sh` then `sudo bash amfetamin install` |
+| **macOS** | `amfetamin-macos.zip` | `chmod +x setup.sh amfetamin lib/*.sh` then `sudo bash amfetamin install` |
 
 ---
 
-## What's new in v3.1.6
+## What's new in v3.1.7
 
 ### Windows
-- Fixed repeated **Visible property** error after Start / Install actions
-- Toast notifications use a stable control reference (no more null toast bar)
-- Sidebar logo and version label no longer overlap
+- Fixed auto-start on login (Task Scheduler bootstrap was failing silently)
+- Service script loads core modules correctly at boot
+- Scheduled task runs 45 seconds after logon (network/Npcap ready)
+- `AmfetaminEncoding.ps1` included in device install
+
+### macOS
+- CLI-only install (`sudo bash amfetamin install`)
+- Menu bar build and install improvements
+- LF line endings in release zip
 
 ---
 
