@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/boratanrikulu/gecit/pkg/brand"
 	gecitdns "github.com/boratanrikulu/gecit/pkg/dns"
 	gecitbpf "github.com/boratanrikulu/gecit/pkg/ebpf/bpf"
 	"github.com/boratanrikulu/gecit/pkg/fake"
@@ -140,7 +141,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		"mss":      m.cfg.MSS,
 		"fake_ttl": m.cfg.FakeTTL,
 		"ports":    m.cfg.Ports,
-	}).Info("gecit active — MSS fragmentation + fake packet injection")
+	}).Info(brand.ProductName + " active — MSS fragmentation + fake packet injection")
 
 	return nil
 }
@@ -207,7 +208,7 @@ func (m *Manager) injectFake(evt gecitbpf.ConnEvent) {
 
 // Stop detaches the BPF program and releases all resources.
 func (m *Manager) Stop() error {
-	m.logger.Info("stopping gecit")
+	m.logger.Info("stopping " + brand.ProductName + " engine")
 
 	if m.cancel != nil {
 		m.cancel()
@@ -230,7 +231,7 @@ func (m *Manager) Stop() error {
 		m.objs = nil
 	}
 
-	m.logger.Info("gecit stopped")
+	m.logger.Info(brand.ProductName + " engine stopped")
 	return nil
 }
 

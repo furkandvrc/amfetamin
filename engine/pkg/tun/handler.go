@@ -26,13 +26,14 @@ type handler struct {
 }
 
 func (h *handler) PrepareConnection(
-	network string, _ M.Socksaddr, destination M.Socksaddr,
+	network string, source M.Socksaddr, destination M.Socksaddr,
 	_ singtun.DirectRouteContext, _ time.Duration,
 ) (singtun.DirectRouteDestination, error) {
-	bypass, reason := tunnelBypassReason(network, destination)
+	bypass, reason := tunnelBypassReason(network, source, destination)
 	if bypass {
 		h.mgr.logger.WithFields(logrus.Fields{
 			"proto":  network,
+			"src":    source.String(),
 			"dst":    destination.String(),
 			"action": "bypass",
 			"reason": reason,

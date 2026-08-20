@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/boratanrikulu/gecit/pkg/brand"
 	"github.com/boratanrikulu/gecit/pkg/engine"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -81,7 +82,7 @@ func runEngine(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	logger.WithField("mode", eng.Mode()).Info("gecit is running — press Ctrl+C to stop")
+	logger.WithField("mode", eng.Mode()).Info(brand.ProductName + " engine running — press Ctrl+C to stop")
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

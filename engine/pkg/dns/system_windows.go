@@ -5,11 +5,10 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
-var breadcrumbFileWin = filepath.Join(os.Getenv("ProgramData"), "gecit-dns-backup")
+var breadcrumbFileWin = primaryDNSBackupPath()
 var savedInterface string
 
 func SetSystemDNS(_ ...string) error {
@@ -19,7 +18,7 @@ func SetSystemDNS(_ ...string) error {
 	}
 	savedInterface = iface
 
-	if data, err := os.ReadFile(breadcrumbFileWin); err == nil {
+	if data, _, err := ReadDNSBackup(); err == nil {
 		lines := strings.SplitN(string(data), "\n", 2)
 		if len(lines) >= 2 {
 			prev := strings.TrimSpace(lines[0])
@@ -47,7 +46,7 @@ func SetSystemDNS(_ ...string) error {
 }
 
 func RestoreSystemDNS(_ ...string) error {
-	data, err := os.ReadFile(breadcrumbFileWin)
+	data, _, err := ReadDNSBackup()
 	if err != nil {
 		iface := savedInterface
 		if iface == "" {
@@ -76,7 +75,7 @@ func RestoreSystemDNS(_ ...string) error {
 	}
 
 	exec.Command("ipconfig", "/flushdns").CombinedOutput()
-	os.Remove(breadcrumbFileWin)
+	RemoveDNSBackupFiles()
 	return nil
 }
 

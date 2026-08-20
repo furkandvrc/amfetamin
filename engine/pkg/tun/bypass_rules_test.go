@@ -18,23 +18,30 @@ func TestParseBypassRuleSpec(t *testing.T) {
 	})
 
 	wf := M.SocksaddrFrom(netip.MustParseAddr("203.0.113.1"), 4950)
-	if !shouldBypassTunnel(N.NetworkUDP, wf) {
+	if !shouldBypassTunnel(N.NetworkUDP, M.Socksaddr{}, wf) {
 		t.Fatal("warframe udp should bypass")
 	}
-	if shouldBypassTunnel(N.NetworkTCP, wf) {
+	if shouldBypassTunnel(N.NetworkTCP, M.Socksaddr{}, wf) {
 		t.Fatal("4950 tcp not in tcp-only warframe udp rule alone - but 4950-4955 includes tcp:4950-4955")
 	}
 
+	// Warframe sends from local UDP 4950/4955 to arbitrary server ports.
+	wfSrc := M.SocksaddrFrom(netip.MustParseAddr("10.0.0.5"), 4950)
+	wfDst := M.SocksaddrFrom(netip.MustParseAddr("203.0.113.50"), 6112)
+	if !shouldBypassTunnel(N.NetworkUDP, wfSrc, wfDst) {
+		t.Fatal("warframe egress udp should bypass by source port")
+	}
+
 	rust := M.SocksaddrFrom(netip.MustParseAddr("203.0.113.1"), 27015)
-	if !shouldBypassTunnel(N.NetworkUDP, rust) {
+	if !shouldBypassTunnel(N.NetworkUDP, M.Socksaddr{}, rust) {
 		t.Fatal("27015 both protocols")
 	}
-	if !shouldBypassTunnel(N.NetworkTCP, rust) {
+	if !shouldBypassTunnel(N.NetworkTCP, M.Socksaddr{}, rust) {
 		t.Fatal("27015 both protocols tcp")
 	}
 
 	discord := M.SocksaddrFrom(netip.MustParseAddr("104.29.142.99"), 19327)
-	if shouldBypassTunnel(N.NetworkUDP, discord) {
+	if shouldBypassTunnel(N.NetworkUDP, M.Socksaddr{}, discord) {
 		t.Fatal("discord voice should use TUN")
 	}
 }

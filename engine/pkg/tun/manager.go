@@ -138,6 +138,9 @@ func (m *Manager) Start(ctx context.Context) error {
 	if m.cfg.SplitTunnel {
 		fields["split_tunnel"] = "legacy flag (no routing change)"
 	}
+	if len(m.cfg.BypassRules) > 0 {
+		fields["bypass_rules"] = len(m.cfg.BypassRules)
+	}
 	m.logger.WithFields(fields).Info("TUN engine active")
 
 	return nil

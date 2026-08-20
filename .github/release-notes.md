@@ -15,6 +15,17 @@
 
 ---
 
+## v3.1.24
+
+### Windows / Engine v0.1.12
+- **Fix Warframe / game bypass:** engine matches **source port** as well as destination (Warframe UDP 4950/4955 egress no longer stuck in TUN)
+- **Fix bypass preset UI:** game presets use visible checkboxes; config load handles string/array presets correctly
+- **Windows:** engine args passed as separate tokens (`--bypass-rule udp:4950-4955` no longer misparsed)
+- **macOS:** launcher now passes `--bypass-rule` from settings (was missing)
+- **Engine branding:** logs/CLI say `amfetamin` instead of `gecit`; DNS backup file renamed with legacy cleanup
+- **Presets:** Warframe TCP **6695–6709**; Steam ports expanded for Steam edition Warframe
+- Requires **engine-v0.1.12**
+
 ## v3.1.23
 
 ### Windows / Engine v0.1.11

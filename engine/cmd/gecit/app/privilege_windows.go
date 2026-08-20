@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 
+	"github.com/boratanrikulu/gecit/pkg/brand"
 	"golang.org/x/sys/windows"
 )
 
@@ -27,7 +28,7 @@ func checkPrivileges() error {
 		return fmt.Errorf("check admin: %w", err)
 	}
 	if !member {
-		return fmt.Errorf("gecit requires Administrator privileges — run as Administrator")
+		return fmt.Errorf("%s requires Administrator privileges — run as Administrator", brand.EngineName)
 	}
 	return nil
 }

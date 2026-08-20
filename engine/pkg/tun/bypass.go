@@ -8,7 +8,7 @@ import (
 	M "github.com/sagernet/sing/common/metadata"
 )
 
-func tunnelBypassReason(network string, destination M.Socksaddr) (bypass bool, reason string) {
+func tunnelBypassReason(network string, source, destination M.Socksaddr) (bypass bool, reason string) {
 	if !destination.IsValid() {
 		return false, "invalid"
 	}
@@ -22,14 +22,19 @@ func tunnelBypassReason(network string, destination M.Socksaddr) (bypass bool, r
 	}
 
 	if ok, label := matchConfiguredBypass(network, destination.Port); ok {
-		return true, "rule:" + label
+		return true, "rule:dst:" + label
+	}
+	if source.IsValid() {
+		if ok, label := matchConfiguredBypass(network, source.Port); ok {
+			return true, "rule:src:" + label
+		}
 	}
 
 	return false, "tun"
 }
 
-func shouldBypassTunnel(network string, destination M.Socksaddr) bool {
-	bypass, _ := tunnelBypassReason(network, destination)
+func shouldBypassTunnel(network string, source, destination M.Socksaddr) bool {
+	bypass, _ := tunnelBypassReason(network, source, destination)
 	return bypass
 }
 

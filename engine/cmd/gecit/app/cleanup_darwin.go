@@ -2,15 +2,16 @@ package app
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/boratanrikulu/gecit/pkg/dns"
 )
 
 func platformCleanup() bool {
 	cleaned := false
 
-	if data, err := os.ReadFile("/tmp/gecit-dns-backup"); err == nil {
+	if data, _, err := dns.ReadDNSBackup(); err == nil {
 		lines := strings.SplitN(string(data), "\n", 3)
 		svc := "Wi-Fi"
 		if len(lines) >= 2 && strings.TrimSpace(lines[1]) != "" {
@@ -25,7 +26,7 @@ func platformCleanup() bool {
 			args := append([]string{"-setdnsservers", svc}, strings.Fields(prev)...)
 			exec.Command("networksetup", args...).CombinedOutput()
 		}
-		os.Remove("/tmp/gecit-dns-backup")
+		dns.RemoveDNSBackupFiles()
 		cleaned = true
 	}
 

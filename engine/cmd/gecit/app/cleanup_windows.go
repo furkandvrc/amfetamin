@@ -2,16 +2,16 @@ package app
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/boratanrikulu/gecit/pkg/dns"
 )
 
 func platformCleanup() bool {
 	cleaned := false
 
-	// 1. Remove stale TUN routes.
-	// Check if gecit routes exist by looking for 0.0.0.0/1 route to TUN IP.
+	// Remove stale TUN routes.
 	if out, err := exec.Command("route", "print", "0.0.0.0").CombinedOutput(); err == nil {
 		if strings.Contains(string(out), "10.0.85.1") {
 			fmt.Println("removing stale routes...")
@@ -23,9 +23,7 @@ func platformCleanup() bool {
 		}
 	}
 
-	// 2. Restore DNS.
-	breadcrumb := os.Getenv("ProgramData") + `\gecit-dns-backup`
-	if data, err := os.ReadFile(breadcrumb); err == nil {
+	if data, _, err := dns.ReadDNSBackup(); err == nil {
 		lines := strings.SplitN(string(data), "\n", 2)
 		prev := strings.TrimSpace(lines[0])
 		iface := "Ethernet"
@@ -40,7 +38,7 @@ func platformCleanup() bool {
 			exec.Command("netsh", "interface", "ip", "set", "dns", iface, "static", prev).CombinedOutput()
 		}
 		exec.Command("ipconfig", "/flushdns").CombinedOutput()
-		os.Remove(breadcrumb)
+		dns.RemoveDNSBackupFiles()
 		cleaned = true
 	}
 

@@ -620,14 +620,11 @@ function Load-AmfetaminSettings {
         $r.SetWarmup.Checked = Get-ConfigBool $cfg 'warmup' $true
         $r.SetSplitTunnel.Checked = Get-ConfigBool $cfg 'splitTunnel' $false
         $r.SetVerbose.Checked = Get-ConfigBool $cfg 'engineVerbose' $false
-        $presetIds = Get-BypassPresetIds
-        $active = @()
-        if ($cfg.PSObject.Properties.Name -contains 'bypassPresets' -and $cfg.bypassPresets) {
-            $active = @($cfg.bypassPresets | ForEach-Object { [string]$_ })
-        }
-        for ($i = 0; $i -lt $r.SetBypassGames.Items.Count; $i++) {
-            $id = $presetIds[$i]
-            $r.SetBypassGames.SetItemChecked($i, ($id -in $active))
+        $active = @(Get-ConfigBypassPresets $cfg)
+        foreach ($id in (Get-BypassPresetIds)) {
+            if ($r.SetBypassGames.ContainsKey($id)) {
+                $r.SetBypassGames[$id].Checked = ($id -in $active)
+            }
         }
         $customText = ''
         if ($cfg.PSObject.Properties.Name -contains 'bypassPortsCustom' -and $cfg.bypassPortsCustom) {
@@ -951,18 +948,21 @@ function Show-AmfetaminMainForm {
     $y += 32
 
     Add-SettingLabel (T 'label_bypass_games') $y
-    $setBypassGames = New-Object System.Windows.Forms.CheckedListBox
-    $setBypassGames.Location = New-Object System.Drawing.Point(20, ($y + 22))
-    $setBypassGames.Size = New-Object System.Drawing.Size(300, 72)
-    $setBypassGames.BackColor = $t.BgCard
-    $setBypassGames.ForeColor = $t.Text
-    $setBypassGames.CheckOnClick = $true
+    $setBypassGames = @{}
+    $bypassY = $y + 24
     $Script:BypassPresetIds = Get-BypassPresetIds
     foreach ($presetId in $Script:BypassPresetIds) {
-        [void]$setBypassGames.Items.Add((T "bypass_preset_$presetId"))
+        $cb = New-Object System.Windows.Forms.CheckBox
+        $cb.Text = (T "bypass_preset_$presetId")
+        $cb.ForeColor = $t.Text
+        $cb.BackColor = $t.BgDeep
+        $cb.AutoSize = $true
+        $cb.Location = New-Object System.Drawing.Point(24, $bypassY)
+        $tabSet.Controls.Add($cb)
+        $setBypassGames[$presetId] = $cb
+        $bypassY += 26
     }
-    $tabSet.Controls.Add($setBypassGames)
-    $y += 102
+    $y += 118
 
     Add-SettingLabel (T 'label_bypass_ports') $y
     $setBypassPorts = New-Object System.Windows.Forms.TextBox
@@ -1077,7 +1077,8 @@ function Show-AmfetaminMainForm {
     $navLogs = New-NavButton -Text (T 'tab_logs') -Location (New-Object System.Drawing.Point(6, $navY)) -Sidebar $sidebar -Page $tabLogs `
         -OnSelect { Invoke-AmfetaminUiDeferred { Refresh-AmfetaminLogView } }
     $navY += 44
-    $navSet = New-NavButton -Text (T 'tab_settings') -Location (New-Object System.Drawing.Point(6, $navY)) -Sidebar $sidebar -Page $tabSet
+    $navSet = New-NavButton -Text (T 'tab_settings') -Location (New-Object System.Drawing.Point(6, $navY)) -Sidebar $sidebar -Page $tabSet `
+        -OnSelect { Invoke-AmfetaminUiDeferred { Load-AmfetaminSettings } }
     $navY += 44
     $navDiag = New-NavButton -Text (T 'tab_diagnostics') -Location (New-Object System.Drawing.Point(6, $navY)) -Sidebar $sidebar -Page $tabDiag
     $navY += 44
@@ -1255,9 +1256,9 @@ function Show-AmfetaminMainForm {
     $btnSaveSettings.Add_Click({
         Invoke-AmfetaminUiAction {
             $selectedPresets = @()
-            for ($i = 0; $i -lt $setBypassGames.Items.Count; $i++) {
-                if ($setBypassGames.GetItemChecked($i)) {
-                    $selectedPresets += $Script:BypassPresetIds[$i]
+            foreach ($presetId in $Script:BypassPresetIds) {
+                if ($setBypassGames[$presetId].Checked) {
+                    $selectedPresets += $presetId
                 }
             }
             $customRules = Expand-BypassCustomPortLines $setBypassPorts.Text

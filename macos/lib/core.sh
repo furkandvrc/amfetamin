@@ -63,7 +63,7 @@ install = os.environ.get("CFG_INSTALL", "")
 paths = [p for p in [install, os.path.join(root, "config.json")] if p and os.path.isfile(p)]
 if not paths:
     sys.exit(2)
-with open(paths[0]) as f:
+with open(paths[0], encoding="utf-8-sig") as f:
     cfg = json.load(f)
 if action == "get":
     key = sys.argv[2]
@@ -74,6 +74,45 @@ if action == "get":
         print(",".join(str(x) for x in val))
     else:
         print(val)
+elif action == "bypass_rules":
+    catalog = {
+        "warframe": [
+            "udp:4950-4955",
+            "tcp:4950-4955",
+            "tcp:6695-6709",
+        ],
+        "lol": ["udp:5000-5500", "udp:8393"],
+        "rust": ["udp:28015-28050"],
+        "steam": [
+            "udp:27000-27100",
+            "tcp:27015",
+            "tcp:27036",
+            "udp:27015",
+            "udp:27031-27036",
+        ],
+    }
+    presets = cfg.get("bypassPresets")
+    if presets is None:
+        presets = ["warframe"]
+    elif isinstance(presets, str):
+        presets = [presets] if presets.strip() else []
+    custom = cfg.get("bypassPortsCustom") or []
+    if isinstance(custom, str):
+        custom = [custom] if custom.strip() else []
+    seen = set()
+    rules = []
+    for pid in presets:
+        for spec in catalog.get(str(pid), []):
+            if spec not in seen:
+                seen.add(spec)
+                rules.append(spec)
+    for spec in custom:
+        spec = str(spec).strip()
+        if spec and spec not in seen:
+            seen.add(spec)
+            rules.append(spec)
+    for rule in rules:
+        print(rule)
 elif action == "set":
     key, val = sys.argv[2], sys.argv[3]
     if val in ("true", "false"):
@@ -87,6 +126,20 @@ elif action == "set":
             json.dump(cfg, f, indent=2)
             f.write("\n")
 PY
+}
+
+engine_bypass_rules() {
+    CFG_ROOT="$(project_root)" CFG_INSTALL="$CONFIG_PATH" cfg_python bypass_rules 2>/dev/null \
+        || CFG_ROOT="$(project_root)" CFG_INSTALL="" cfg_python bypass_rules
+}
+
+append_engine_bypass_args() {
+    local -n args_ref=$1
+    local rule
+    while IFS= read -r rule; do
+        [[ -z "$rule" ]] && continue
+        args_ref+=( --bypass-rule "$rule" )
+    done < <(engine_bypass_rules)
 }
 
 cfg_get() {
@@ -258,6 +311,7 @@ start_engine_hidden() {
     engine_args=( run --doh-upstream "$(cfg_get dohUpstream)" )
     [[ -n "$cfg_ttl" && "$cfg_ttl" -gt 0 ]] && engine_args+=( --fake-ttl "$cfg_ttl" )
     [[ "$(cfg_get splitTunnel)" == "true" ]] && engine_args+=( --split-tunnel )
+    append_engine_bypass_args engine_args
     [[ "$verbose" == "true" ]] && engine_args+=( -v )
 
     "$ENGINE_BIN" "${engine_args[@]}" >> "$LOG_DIR/engine.log" 2>&1 &

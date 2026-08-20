@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const breadcrumbFile = "/tmp/gecit-dns-backup"
+const breadcrumbFile = "/tmp/amfetamin-dns-backup"
 
 var savedDNS string
 var savedService string
@@ -76,9 +76,10 @@ func SetSystemDNS(networkService ...string) error {
 	}
 	savedService = svc
 
-	if data, err := os.ReadFile(breadcrumbFile); err == nil {
-		prev := strings.TrimSpace(string(data))
-		if prev != "" && prev != "127.0.0.1" {
+	if data, _, err := ReadDNSBackup(); err == nil {
+		lines := strings.SplitN(string(data), "\n", 2)
+		prev := strings.TrimSpace(lines[0])
+		if prev != "" && prev != "127.0.0.1" && prev != "empty" {
 			parts := strings.Fields(prev)
 			args := append([]string{"-setdnsservers", svc}, parts...)
 			exec.Command("networksetup", args...).CombinedOutput()
@@ -122,6 +123,6 @@ func RestoreSystemDNS(networkService ...string) error {
 
 	exec.Command("networksetup", args...).CombinedOutput()
 	ResumeMDNSResponder()
-	os.Remove(breadcrumbFile)
+	RemoveDNSBackupFiles()
 	return nil
 }

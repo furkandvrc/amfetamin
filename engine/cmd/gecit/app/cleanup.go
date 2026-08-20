@@ -3,13 +3,14 @@ package app
 import (
 	"fmt"
 
+	"github.com/boratanrikulu/gecit/pkg/brand"
 	"github.com/spf13/cobra"
 )
 
 var cleanupCmd = &cobra.Command{
 	Use:   "cleanup",
 	Short: "Restore system settings after a crash",
-	Long:  `Removes stale routes and restores DNS settings left behind by a gecit crash or SIGKILL.`,
+	Long:  `Removes stale routes and restores DNS settings left behind by an ` + brand.ProductName + ` engine crash or SIGKILL.`,
 	RunE:  runCleanup,
 }
 

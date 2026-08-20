@@ -34,7 +34,7 @@ if (-not (Get-Command Get-AmfetaminUtf8ScriptBlock -ErrorAction SilentlyContinue
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminI18n.ps1'))
 
 # Motor indirme (amfetamin engine v0.1.5)
-$Script:EngineVersion = 'engine-v0.1.11'
+$Script:EngineVersion = 'engine-v0.1.12'
 $Script:EngineReleaseBase = 'https://github.com/furkandvrc/amfetamin/releases/download'
 $Script:EngineRemoteAsset = 'amfetamin-engine.exe'
 $Script:EngineChecksumFile = 'checksums.txt'
@@ -57,7 +57,7 @@ function Get-ProjectRoot {
 
 function Get-DefaultConfigValues {
     return @{
-        version            = '3.1.23'
+        version            = '3.1.24'
         dohUpstream        = 'cloudflare'
         fakeTtl              = 8
         autoTuneTtl          = $true
@@ -69,9 +69,9 @@ function Get-DefaultConfigValues {
         engineVerbose        = $false
         projectUrl           = 'https://github.com/furkandvrc/amfetamin'
         logMaxMb             = 5
-        engineVersion        = 'v0.1.11'
+        engineVersion        = 'v0.1.12'
         engineReleaseBase    = 'https://github.com/furkandvrc/amfetamin/releases/download'
-        engineTag            = 'engine-v0.1.11'
+        engineTag            = 'engine-v0.1.12'
         splitTunnel          = $false
         bypassPresets        = @('warframe')
         bypassPortsCustom    = @()
@@ -80,15 +80,35 @@ function Get-DefaultConfigValues {
 
 function Get-BypassPresetCatalog {
     return [ordered]@{
-        warframe = @('udp:4950-4955', 'tcp:4950-4955', 'tcp:6695-6699')
+        warframe = @('udp:4950-4955', 'tcp:4950-4955', 'tcp:6695-6709')
         lol      = @('udp:5000-5500', 'udp:8393')
         rust     = @('udp:28015-28050')
-        steam    = @('udp:27000-27100')
+        steam    = @('udp:27000-27100', 'tcp:27015', 'tcp:27036', 'udp:27015', 'udp:27031-27036')
     }
 }
 
 function Get-BypassPresetIds {
     return @('warframe', 'lol', 'rust', 'steam')
+}
+
+function Normalize-ConfigStringArray {
+    param($Value)
+    if ($null -eq $Value) { return @() }
+    if ($Value -is [string]) {
+        $text = [string]$Value
+        if ([string]::IsNullOrWhiteSpace($text)) { return @() }
+        return @($text.Trim())
+    }
+    return @($Value | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+}
+
+function Get-ConfigBypassPresets {
+    param($Cfg = $null)
+    if (-not $Cfg) { $Cfg = Get-Config }
+    if ($Cfg.PSObject.Properties.Name -notcontains 'bypassPresets') {
+        return @((Get-DefaultConfigValues).bypassPresets)
+    }
+    return @(Normalize-ConfigStringArray $Cfg.bypassPresets)
 }
 
 function Expand-BypassCustomPortLines {
@@ -109,10 +129,7 @@ function Get-EngineBypassRuleSpecs {
     if (-not $Cfg) { $Cfg = Get-Config }
     $rules = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     $catalog = Get-BypassPresetCatalog
-    $presets = @()
-    if ($Cfg.PSObject.Properties.Name -contains 'bypassPresets' -and $Cfg.bypassPresets) {
-        $presets = @($Cfg.bypassPresets)
-    }
+    $presets = @(Get-ConfigBypassPresets $Cfg)
     foreach ($id in $presets) {
         $key = [string]$id
         if ($catalog.Contains($key)) {
@@ -138,7 +155,8 @@ function Merge-ConfigWithDefaults {
         $current = if ($hasProp) { $Cfg.$key } else { $null }
         $missing = -not $hasProp
         $emptyString = ($current -is [string] -and [string]::IsNullOrWhiteSpace($current))
-        if ($missing -or $emptyString) {
+        $nullValue = ($null -eq $current)
+        if ($missing -or $emptyString -or $nullValue) {
             if ($missing) {
                 $Cfg | Add-Member -NotePropertyName $key -NotePropertyValue $defaultValue -Force
             } else {
@@ -728,13 +746,13 @@ function Start-EngineProcess {
     } catch {}
 
     Write-LauncherLog "Motor baslatiliyor: $argLine"
-    # Redirect stderr to file via Start-Process (manual pipe read can deadlock when engine is verbose).
+    # Pass argv tokens separately so --bypass-rule values (e.g. udp:4950-4955) are not misparsed.
     return Start-Process -FilePath $Script:EngineExe `
         -WorkingDirectory $Script:BinDir `
         -WindowStyle Hidden `
         -PassThru `
         -RedirectStandardError $Script:RunLog `
-        -ArgumentList @($argLine)
+        -ArgumentList $EngineArgs
 }
 
 function Invoke-EngineWarmup {
