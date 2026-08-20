@@ -129,7 +129,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		"ttl":   m.cfg.FakeTTL,
 	}
 	if m.cfg.SplitTunnel {
-		fields["split_tunnel"] = "browser+discord (443/tcp + discord udp, other udp bypass, lan excluded)"
+		fields["split_tunnel"] = "browser+discord (443/tcp only; all udp bypass, lan excluded)"
 	}
 	m.logger.WithFields(fields).Info("TUN engine active")
 

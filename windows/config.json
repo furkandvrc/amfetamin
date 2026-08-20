@@ -1,5 +1,5 @@
 {
-  "version": "3.1.19",
+  "version": "3.1.20",
   "dohUpstream": "cloudflare",
   "fakeTtl": 8,
   "autoTuneTtl": true,
@@ -17,8 +17,8 @@
   "engineVerbose": false,
   "projectUrl": "https://github.com/furkandvrc/amfetamin",
   "logMaxMb": 5,
-  "engineVersion": "v0.1.7",
+  "engineVersion": "v0.1.8",
   "engineReleaseBase": "https://github.com/furkandvrc/amfetamin/releases/download",
-  "engineTag": "engine-v0.1.7",
+  "engineTag": "engine-v0.1.8",
   "splitTunnel": true
 }

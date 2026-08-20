@@ -67,10 +67,8 @@ func shouldBypassSplitTunnel(network string, destination M.Socksaddr) bool {
 	}
 
 	if network == N.NetworkUDP {
-		// Discord voice uses high UDP ports; DNS cache may miss media IPs.
-		if isDiscordDestination(destination) || destination.Port >= 50000 {
-			return false
-		}
+		// All UDP bypasses split tunnel — games and Discord voice/WebRTC need direct NAT.
+		// DPI bypass (fake ClientHello) applies to TCP/443 only; proxying voice UDP breaks ICE.
 		return true
 	}
 

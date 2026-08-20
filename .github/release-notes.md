@@ -15,6 +15,14 @@
 
 ---
 
+## v3.1.20
+
+### Windows / Engine v0.1.8
+- **Fix:** Split tunnel bypasses **all UDP** again — Discord voice/WebRTC needs direct NAT; proxying voice UDP through TUN caused stuck Connecting
+- **Fix:** Stop now runs engine cleanup and restores system DNS (no orphaned 127.0.0.1 DNS after Stop)
+- DPI bypass remains TCP/443 only (fake ClientHello)
+- Requires **engine-v0.1.8** (auto-downloaded on install)
+
 ## v3.1.19
 
 ### Windows / Engine v0.1.7

@@ -26,13 +26,13 @@ func TestIsDiscordHost(t *testing.T) {
 	}
 }
 
-func TestShouldBypassSplitTunnelHighPortUDP(t *testing.T) {
-	dest := M.SocksaddrFrom(netip.MustParseAddr("203.0.113.1"), 50001)
-	if shouldBypassSplitTunnel(N.NetworkUDP, dest) {
-		t.Error("UDP port >= 50000 should route through TUN, not bypass")
+func TestShouldBypassSplitTunnelUDP(t *testing.T) {
+	highPort := M.SocksaddrFrom(netip.MustParseAddr("203.0.113.1"), 50001)
+	if !shouldBypassSplitTunnel(N.NetworkUDP, highPort) {
+		t.Error("all UDP should bypass split tunnel (Discord voice WebRTC needs direct NAT)")
 	}
 	lowPort := M.SocksaddrFrom(netip.MustParseAddr("203.0.113.1"), 27015)
 	if !shouldBypassSplitTunnel(N.NetworkUDP, lowPort) {
-		t.Error("low-port game UDP should bypass split tunnel")
+		t.Error("game UDP should bypass split tunnel")
 	}
 }

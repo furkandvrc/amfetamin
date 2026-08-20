@@ -34,7 +34,7 @@ if (-not (Get-Command Get-AmfetaminUtf8ScriptBlock -ErrorAction SilentlyContinue
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminI18n.ps1'))
 
 # Motor indirme (amfetamin engine v0.1.5)
-$Script:EngineVersion = 'engine-v0.1.7'
+$Script:EngineVersion = 'engine-v0.1.8'
 $Script:EngineReleaseBase = 'https://github.com/furkandvrc/amfetamin/releases/download'
 $Script:EngineRemoteAsset = 'amfetamin-engine.exe'
 $Script:EngineChecksumFile = 'checksums.txt'
@@ -57,7 +57,7 @@ function Get-ProjectRoot {
 
 function Get-DefaultConfigValues {
     return @{
-        version            = '3.1.19'
+        version            = '3.1.20'
         dohUpstream        = 'cloudflare'
         fakeTtl              = 8
         autoTuneTtl          = $true
@@ -69,9 +69,9 @@ function Get-DefaultConfigValues {
         engineVerbose        = $false
         projectUrl           = 'https://github.com/furkandvrc/amfetamin'
         logMaxMb             = 5
-        engineVersion        = 'v0.1.7'
+        engineVersion        = 'v0.1.8'
         engineReleaseBase    = 'https://github.com/furkandvrc/amfetamin/releases/download'
-        engineTag            = 'engine-v0.1.7'
+        engineTag            = 'engine-v0.1.8'
         splitTunnel          = $true
     }
 }
@@ -793,6 +793,8 @@ pause
 }
 
 function Stop-Amfetamin {
+    param([switch]$SkipCleanup)
+
     $procs = @(Get-AmfetaminEngineProcesses)
     if (-not $procs) {
         Stop-LegacyEngine | Out-Null
@@ -801,6 +803,17 @@ function Stop-Amfetamin {
     $procs | Stop-Process -Force
     Write-LauncherLog 'amfetamin durduruldu'
     Write-AmfetaminLog -Message 'Motor durduruldu' -Level INFO -Audit
+    if (-not $SkipCleanup) {
+        if (Test-Path -LiteralPath $Script:EngineExe) {
+            try {
+                & $Script:EngineExe cleanup 2>&1 | Out-Null
+                Write-LauncherLog 'engine cleanup calistirildi (stop)'
+            } catch {
+                Write-AmfetaminError -Message 'engine cleanup hata (stop)' -Exception $_.Exception
+            }
+        }
+        Reset-SystemDnsIfNeeded
+    }
     return (T 'msg_engine_stopped')
 }
 
