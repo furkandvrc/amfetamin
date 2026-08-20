@@ -544,8 +544,9 @@ function Start-AmfetaminHidden {
 
     $argParams = @{}
     if ($FakeTtlOverride -gt 0) { $argParams.FakeTtlOverride = $FakeTtlOverride }
-    $args = Get-EngineRunArgs @argParams
-    $proc = Start-Process -FilePath $Script:EngineExe -ArgumentList $args -WorkingDirectory $Script:BinDir `
+    $engineArgs = @(Get-EngineRunArgs @argParams)
+    if ($engineArgs.Count -eq 0) { throw (T 'err_engine_start_failed' 'empty engine args') }
+    $proc = Start-Process -FilePath $Script:EngineExe -ArgumentList $engineArgs -WorkingDirectory $Script:BinDir `
         -WindowStyle Hidden -PassThru -RedirectStandardError $Script:RunLog
     Start-Sleep -Seconds 2
     if (-not $proc.HasExited -and (Test-AmfetaminRunning)) {

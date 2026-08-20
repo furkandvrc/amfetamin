@@ -41,8 +41,12 @@ function Ensure-AmfetaminRunning {
         Stop-LegacyEngine
         Ensure-EngineBinary
         if (-not $Script:RunLog) { Initialize-AmfetaminLogging }
-        $args = Get-EngineRunArgs
-        Start-Process -FilePath $Script:EngineExe -ArgumentList $args -WorkingDirectory $Script:BinDir `
+        $engineArgs = @(Get-EngineRunArgs)
+        if ($engineArgs.Count -eq 0) {
+            Write-ServiceLog 'Motor argumanlari bos — baslatma atlandi'
+            return
+        }
+        Start-Process -FilePath $Script:EngineExe -ArgumentList $engineArgs -WorkingDirectory $Script:BinDir `
             -WindowStyle Hidden -RedirectStandardError $Script:RunLog
         Start-Sleep -Seconds 3
         if (Test-AmfetaminRunning) {
