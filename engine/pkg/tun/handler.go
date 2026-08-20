@@ -29,8 +29,7 @@ func (h *handler) PrepareConnection(
 	network string, source M.Socksaddr, destination M.Socksaddr,
 	_ singtun.DirectRouteContext, _ time.Duration,
 ) (singtun.DirectRouteDestination, error) {
-	bypass, reason := tunnelBypassReason(network, source, destination)
-	if bypass {
+	if bypass, reason := tunnelBypassReason(network, source, destination); bypass {
 		h.mgr.logger.WithFields(logrus.Fields{
 			"proto":  network,
 			"src":    source.String(),
@@ -38,8 +37,9 @@ func (h *handler) PrepareConnection(
 			"action": "bypass",
 			"reason": reason,
 		}).Debug("tunnel bypass")
-		return nil, singtun.ErrBypass
 	}
+	// gvisor stack treats any PrepareConnection error as drop/reject (ErrBypass only
+	// works on Linux nfqueue). Bypass traffic is relayed in New*ConnectionEx instead.
 	return nil, nil
 }
 
@@ -60,6 +60,18 @@ func (h *handler) NewConnectionEx(
 
 	if isDiscordDestination(destination) {
 		noteDiscordIP(destination.Addr)
+	}
+
+	if bypass, reason := tunnelBypassReason(N.NetworkTCP, source, destination); bypass {
+		h.logBypassRelay(N.NetworkTCP, source, destination, reason)
+		serverConn, err := h.dialBypass(N.NetworkTCP, source, destination)
+		if err != nil {
+			h.mgr.logger.WithError(err).WithField("dst", destination.String()).Debug("bypass dial failed")
+			return
+		}
+		defer serverConn.Close()
+		pipe(conn, serverConn)
+		return
 	}
 
 	dstPort := destination.Port
@@ -151,13 +163,55 @@ func (h *handler) NewPacketConnectionEx(
 	}
 	defer conn.Close()
 
+	if bypass, reason := tunnelBypassReason(N.NetworkUDP, source, destination); bypass {
+		h.logBypassRelay(N.NetworkUDP, source, destination, reason)
+		realConn, err := h.dialBypass(N.NetworkUDP, source, destination)
+		if err != nil {
+			h.mgr.logger.WithError(err).WithField("dst", destination.String()).Debug("bypass dial failed")
+			return
+		}
+		defer realConn.Close()
+		h.relayUDP(conn, realConn, destination)
+		return
+	}
+
 	addr := net.JoinHostPort(destination.AddrString(), fmt.Sprint(destination.Port))
 	realConn, err := h.mgr.dialServer("udp", addr, 5*time.Second)
 	if err != nil {
 		return
 	}
 	defer realConn.Close()
+	h.relayUDP(conn, realConn, destination)
+}
 
+func (h *handler) logBypassRelay(network string, source, destination M.Socksaddr, reason string) {
+	h.mgr.logger.WithFields(logrus.Fields{
+		"proto":  network,
+		"src":    source.String(),
+		"dst":    destination.String(),
+		"action": "bypass relay",
+		"reason": reason,
+	}).Debug("tunnel bypass relay")
+}
+
+func (h *handler) dialBypass(network string, source, destination M.Socksaddr) (net.Conn, error) {
+	addr := net.JoinHostPort(destination.AddrString(), fmt.Sprint(destination.Port))
+	dialer := net.Dialer{
+		Timeout: 5 * time.Second,
+		Control: h.mgr.bindControl,
+	}
+	if source.Port > 0 {
+		switch network {
+		case N.NetworkTCP:
+			dialer.LocalAddr = &net.TCPAddr{Port: int(source.Port)}
+		case N.NetworkUDP:
+			dialer.LocalAddr = &net.UDPAddr{Port: int(source.Port)}
+		}
+	}
+	return dialer.Dial(network, addr)
+}
+
+func (h *handler) relayUDP(tunConn N.PacketConn, realConn net.Conn, destination M.Socksaddr) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -168,7 +222,7 @@ func (h *handler) NewPacketConnectionEx(
 			if err != nil {
 				return
 			}
-			if err := conn.WritePacket(buf.As(rawBuf[:n]), destination); err != nil {
+			if err := tunConn.WritePacket(buf.As(rawBuf[:n]), destination); err != nil {
 				return
 			}
 		}
@@ -176,8 +230,8 @@ func (h *handler) NewPacketConnectionEx(
 
 	for {
 		b := buf.NewSize(65535)
-		conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-		_, err := conn.ReadPacket(b)
+		tunConn.SetReadDeadline(time.Now().Add(30 * time.Second))
+		_, err := tunConn.ReadPacket(b)
 		if err != nil {
 			b.Release()
 			break

@@ -15,6 +15,12 @@
 
 ---
 
+## v3.1.25
+
+### Windows / Engine v0.1.13
+- **Fix Warframe / game bypass (real fix):** `ErrBypass` dropped packets on Windows/macOS gvisor TUN — bypass now **relays with source port preserved** (UDP 4950/4955, TCP game ports)
+- Requires **engine-v0.1.13**
+
 ## v3.1.24
 
 ### Windows / Engine v0.1.12

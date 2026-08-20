@@ -1,5 +1,5 @@
 {
-  "version": "3.1.24",
+  "version": "3.1.25",
   "dohUpstream": "cloudflare",
   "fakeTtl": 8,
   "autoTuneTtl": true,
@@ -17,9 +17,9 @@
   "engineVerbose": false,
   "projectUrl": "https://github.com/furkandvrc/amfetamin",
   "logMaxMb": 5,
-  "engineVersion": "v0.1.12",
+  "engineVersion": "v0.1.13",
   "engineReleaseBase": "https://github.com/furkandvrc/amfetamin/releases/download",
-  "engineTag": "engine-v0.1.12",
+  "engineTag": "engine-v0.1.13",
   "engineAssetArm64": "amfetamin-engine-darwin-arm64",
   "engineAssetAmd64": "amfetamin-engine-darwin-amd64",
   "splitTunnel": false,
