@@ -152,7 +152,10 @@ function Test-BypassTargetReachable {
 }
 
 function Invoke-FakeTtlAutoTune {
-    param([scriptblock]$Progress = $null)
+    param(
+        [scriptblock]$Progress = $null,
+        [switch]$InstallMode
+    )
 
     $cfg = Get-Config
     $testUrl = 'https://discord.com'
@@ -165,7 +168,8 @@ function Invoke-FakeTtlAutoTune {
     }
 
     $candidates = Get-FakeTtlCandidates
-    Write-LauncherLog ('TTL otomatik ayar basladi (' + $testUrl + '; adaylar: ' + ($candidates -join ',') + ')')
+    $modeLabel = if ($InstallMode) { 'kurulum' } else { 'tam' }
+    Write-LauncherLog ('TTL otomatik ayar basladi (' + $modeLabel + '; ' + $testUrl + '; adaylar: ' + ($candidates -join ',') + ')')
 
     $bestTtl = $null
     foreach ($ttl in $candidates) {
@@ -173,7 +177,10 @@ function Invoke-FakeTtlAutoTune {
             if ($Progress) { & $Progress (T 'ttl_trying' $ttl) }
             Write-LauncherLog "TTL deneniyor: $ttl"
             Stop-Amfetamin | Out-Null
-            Start-Sleep -Seconds 1
+            if (Test-Path -LiteralPath $Script:EngineExe) {
+                try { & $Script:EngineExe cleanup 2>&1 | Out-Null } catch {}
+            }
+            Start-Sleep -Seconds 2
             Start-AmfetaminHidden -FakeTtlOverride $ttl -SkipWarmup | Out-Null
             if (-not (Test-AmfetaminRunning)) {
                 Write-LauncherLog "TTL $ttl ile motor baslamadi"
@@ -182,6 +189,12 @@ function Invoke-FakeTtlAutoTune {
             $running = @(Get-AmfetaminEngineProcesses)
             if ($running.Count -gt 0) {
                 Write-LauncherLog "TTL $ttl motor calisiyor (PID $($running[0].Id))"
+            }
+            if ($InstallMode) {
+                $bestTtl = $ttl
+                Write-LauncherLog "TTL $ttl kurulum modunda kabul edildi (motor calisiyor)"
+                if ($Progress) { & $Progress (T 'ttl_success' $ttl) }
+                break
             }
             Start-Sleep -Seconds 3
             if (Test-BypassTargetReachable -Url $testUrl -TimeoutSec $timeout) {
@@ -202,7 +215,10 @@ function Invoke-FakeTtlAutoTune {
         $bestTtl = if ($cfg.fakeTtl) { [int]$cfg.fakeTtl } else { 8 }
         Write-LauncherLog "Uygun TTL bulunamadi, varsayilan kullaniliyor: $bestTtl"
         Stop-Amfetamin | Out-Null
-        Start-Sleep -Seconds 1
+        if (Test-Path -LiteralPath $Script:EngineExe) {
+            try { & $Script:EngineExe cleanup 2>&1 | Out-Null } catch {}
+        }
+        Start-Sleep -Seconds 2
         try {
             Start-AmfetaminHidden -FakeTtlOverride $bestTtl -SkipWarmup | Out-Null
         } catch {
@@ -218,6 +234,9 @@ function Invoke-FakeTtlAutoTune {
     Sync-LauncherToDevice
     Invoke-EngineWarmup -NonBlocking
 
+    if ($InstallMode) {
+        return (T 'ttl_autotune_install_done' $bestTtl)
+    }
     if (Test-BypassTargetReachable -Url $testUrl -TimeoutSec $timeout) {
         return (T 'ttl_autotune_success' $bestTtl, $testUrl)
     }
@@ -564,26 +583,14 @@ function Start-EngineProcess {
         [System.IO.File]::WriteAllText($Script:RunLog, '', (New-Object System.Text.UTF8Encoding $false))
     } catch {}
 
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $Script:EngineExe
-    $psi.WorkingDirectory = $Script:BinDir
-    $psi.Arguments = $argLine
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $true
-    $psi.RedirectStandardError = $true
-
-    $proc = New-Object System.Diagnostics.Process
-    $proc.StartInfo = $psi
-    $logPath = $Script:RunLog
-    $proc.add_ErrorDataReceived({
-        param($sender, $eventArgs)
-        if ($null -ne $eventArgs.Data -and $logPath) {
-            [System.IO.File]::AppendAllText($logPath, $eventArgs.Data + [Environment]::NewLine)
-        }
-    })
-    [void]$proc.Start()
-    $proc.BeginErrorReadLine()
-    return $proc
+    Write-LauncherLog "Motor baslatiliyor: $argLine"
+    # Redirect stderr to file via Start-Process (manual pipe read can deadlock when engine is verbose).
+    return Start-Process -FilePath $Script:EngineExe `
+        -WorkingDirectory $Script:BinDir `
+        -WindowStyle Hidden `
+        -PassThru `
+        -RedirectStandardError $Script:RunLog `
+        -ArgumentList @($argLine)
 }
 
 function Invoke-EngineWarmup {
@@ -826,7 +833,7 @@ function Install-ToDevice {
 
     if (Test-ShouldAutoTuneFakeTtl) {
         if ($Progress) { & $Progress (T 'progress_ttl_autotune') }
-        $messages += Invoke-FakeTtlAutoTune -Progress $Progress
+        $messages += Invoke-FakeTtlAutoTune -Progress $Progress -InstallMode
     } else {
         Start-AmfetaminHidden | Out-Null
     }

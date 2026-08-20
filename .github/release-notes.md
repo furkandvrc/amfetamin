@@ -15,6 +15,13 @@
 
 ---
 
+## v3.1.14
+
+### Windows
+- Fix engine restart hang during TTL tuning (stderr pipe deadlock in `Start-EngineProcess`)
+- Run `engine cleanup` and wait before restarting motor between TTL attempts
+- Install wizard uses quick TTL mode: accepts first running engine without blocking Discord HTTP test
+
 ## v3.1.13
 
 ### Windows
