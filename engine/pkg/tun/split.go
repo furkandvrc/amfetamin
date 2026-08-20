@@ -3,6 +3,7 @@
 package tun
 
 import (
+	"fmt"
 	"net/netip"
 	"strings"
 
@@ -46,6 +47,9 @@ func isDiscordDestination(destination M.Socksaddr) bool {
 	if !destination.IsValid() {
 		return false
 	}
+	if isKnownDiscordIP(destination.Addr) {
+		return true
+	}
 	if dns := gecitdns.GetDNSServer(); dns != nil {
 		for _, domain := range dns.DomainsForIP(destination.Addr.String()) {
 			if isDiscordHost(domain) {
@@ -56,25 +60,40 @@ func isDiscordDestination(destination M.Socksaddr) bool {
 	return false
 }
 
-func shouldBypassSplitTunnel(network string, destination M.Socksaddr) bool {
+func splitTunnelBypassReason(network string, destination M.Socksaddr) (bypass bool, reason string) {
 	if !destination.IsValid() {
-		return false
+		return false, "invalid"
 	}
 
 	addr := destination.Addr
 	if !addr.IsGlobalUnicast() || addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast() {
-		return true
+		return true, "lan"
 	}
 
 	if network == N.NetworkUDP {
-		// All UDP bypasses split tunnel — games and Discord voice/WebRTC need direct NAT.
-		// DPI bypass (fake ClientHello) applies to TCP/443 only; proxying voice UDP breaks ICE.
-		return true
+		if isGameUDPBypassPort(destination.Port) {
+			return true, fmt.Sprintf("game-udp:%d", destination.Port)
+		}
+		return false, "discord-or-other-udp"
 	}
 
-	if network == N.NetworkTCP && destination.Port != 443 {
-		return true
+	if network == N.NetworkTCP {
+		if destination.Port == 443 {
+			return false, "https"
+		}
+		if isGameTCPBypassPort(destination.Port) {
+			return true, fmt.Sprintf("game-tcp:%d", destination.Port)
+		}
+		if isDiscordDestination(destination) {
+			return false, "discord-tcp"
+		}
+		return true, fmt.Sprintf("tcp:%d", destination.Port)
 	}
 
-	return false
+	return false, "default-tun"
+}
+
+func shouldBypassSplitTunnel(network string, destination M.Socksaddr) bool {
+	bypass, _ := splitTunnelBypassReason(network, destination)
+	return bypass
 }

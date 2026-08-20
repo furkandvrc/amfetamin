@@ -15,6 +15,14 @@
 
 ---
 
+## v3.1.21
+
+### Windows / Engine v0.1.9
+- **Fix:** Discord voice on banned networks — route **non-game UDP through TUN** (same as pre-split full tunnel); v0.1.8 bypass let ISP block direct voice UDP
+- Game UDP/TCP still bypass (Steam 27000+, Rust 28015+, Riot 5000–5500, Warframe UPnP 4950–4955, …)
+- Engine logs `split tunnel UDP via TUN` when voice/media UDP is proxied (visible in exported logs)
+- Requires **engine-v0.1.9** (auto-downloaded on install)
+
 ## v3.1.20
 
 ### Windows / Engine v0.1.8

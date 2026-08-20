@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -28,8 +29,33 @@ func (h *handler) PrepareConnection(
 	network string, _ M.Socksaddr, destination M.Socksaddr,
 	_ singtun.DirectRouteContext, _ time.Duration,
 ) (singtun.DirectRouteDestination, error) {
-	if h.mgr.cfg.SplitTunnel && shouldBypassSplitTunnel(network, destination) {
-		return nil, singtun.ErrBypass
+	if h.mgr.cfg.SplitTunnel {
+		bypass, reason := splitTunnelBypassReason(network, destination)
+		if bypass {
+			h.mgr.logger.WithFields(logrus.Fields{
+				"proto":  network,
+				"dst":    destination.String(),
+				"action": "bypass",
+				"reason": reason,
+			}).Debug("split tunnel")
+			return nil, singtun.ErrBypass
+		}
+		if network == N.NetworkUDP {
+			h.mgr.logger.WithFields(logrus.Fields{
+				"proto":  network,
+				"dst":    destination.String(),
+				"action": "tun",
+				"reason": reason,
+			}).Info("split tunnel UDP via TUN")
+		} else {
+			h.mgr.logger.WithFields(logrus.Fields{
+				"proto":  network,
+				"dst":    destination.String(),
+				"action": "tun",
+				"reason": reason,
+			}).Debug("split tunnel")
+		}
+		return nil, nil
 	}
 	return nil, nil
 }
@@ -48,6 +74,10 @@ func (h *handler) NewConnectionEx(
 		return
 	}
 	defer conn.Close()
+
+	if isDiscordDestination(destination) {
+		noteDiscordIP(destination.Addr)
+	}
 
 	dstPort := destination.Port
 	addr := net.JoinHostPort(destination.AddrString(), fmt.Sprint(dstPort))
@@ -89,6 +119,12 @@ func (h *handler) injectAndForward(appConn, serverConn net.Conn, dst string) {
 	remoteTCP, ok2 := serverConn.RemoteAddr().(*net.TCPAddr)
 	if !ok1 || !ok2 {
 		return
+	}
+
+	if sni := fake.ParseSNI(clientHello); sni != "" && isDiscordHost(sni) {
+		if addr, ok := netip.AddrFromSlice(remoteTCP.IP); ok {
+			noteDiscordIP(addr)
+		}
 	}
 
 	connInfo := rawsock.ConnInfo{

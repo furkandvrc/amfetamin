@@ -34,7 +34,7 @@ if (-not (Get-Command Get-AmfetaminUtf8ScriptBlock -ErrorAction SilentlyContinue
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminI18n.ps1'))
 
 # Motor indirme (amfetamin engine v0.1.5)
-$Script:EngineVersion = 'engine-v0.1.8'
+$Script:EngineVersion = 'engine-v0.1.9'
 $Script:EngineReleaseBase = 'https://github.com/furkandvrc/amfetamin/releases/download'
 $Script:EngineRemoteAsset = 'amfetamin-engine.exe'
 $Script:EngineChecksumFile = 'checksums.txt'
@@ -57,7 +57,7 @@ function Get-ProjectRoot {
 
 function Get-DefaultConfigValues {
     return @{
-        version            = '3.1.20'
+        version            = '3.1.21'
         dohUpstream        = 'cloudflare'
         fakeTtl              = 8
         autoTuneTtl          = $true
@@ -69,9 +69,9 @@ function Get-DefaultConfigValues {
         engineVerbose        = $false
         projectUrl           = 'https://github.com/furkandvrc/amfetamin'
         logMaxMb             = 5
-        engineVersion        = 'v0.1.8'
+        engineVersion        = 'v0.1.9'
         engineReleaseBase    = 'https://github.com/furkandvrc/amfetamin/releases/download'
-        engineTag            = 'engine-v0.1.8'
+        engineTag            = 'engine-v0.1.9'
         splitTunnel          = $true
     }
 }
