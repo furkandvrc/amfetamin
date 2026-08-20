@@ -15,6 +15,15 @@
 
 ---
 
+## v3.1.23
+
+### Windows / Engine v0.1.11
+- **Configurable TUN bypass:** Settings → game presets (Warframe, LoL, Rust, Steam) + custom ports
+- No hardcoded bypass in engine — only what you enable is bypassed; default preset: Warframe only
+- Custom port syntax: `udp:4950-4955`, `tcp:6695-6699`, `27015` (both protocols)
+- Full TUN for Discord/speedtest; bypass rules passed via `--bypass-rule`
+- Requires **engine-v0.1.11**
+
 ## v3.1.22
 
 ### Windows / Engine v0.1.10

@@ -34,7 +34,7 @@ if (-not (Get-Command Get-AmfetaminUtf8ScriptBlock -ErrorAction SilentlyContinue
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminI18n.ps1'))
 
 # Motor indirme (amfetamin engine v0.1.5)
-$Script:EngineVersion = 'engine-v0.1.10'
+$Script:EngineVersion = 'engine-v0.1.11'
 $Script:EngineReleaseBase = 'https://github.com/furkandvrc/amfetamin/releases/download'
 $Script:EngineRemoteAsset = 'amfetamin-engine.exe'
 $Script:EngineChecksumFile = 'checksums.txt'
@@ -57,7 +57,7 @@ function Get-ProjectRoot {
 
 function Get-DefaultConfigValues {
     return @{
-        version            = '3.1.22'
+        version            = '3.1.23'
         dohUpstream        = 'cloudflare'
         fakeTtl              = 8
         autoTuneTtl          = $true
@@ -69,11 +69,63 @@ function Get-DefaultConfigValues {
         engineVerbose        = $false
         projectUrl           = 'https://github.com/furkandvrc/amfetamin'
         logMaxMb             = 5
-        engineVersion        = 'v0.1.10'
+        engineVersion        = 'v0.1.11'
         engineReleaseBase    = 'https://github.com/furkandvrc/amfetamin/releases/download'
-        engineTag            = 'engine-v0.1.10'
+        engineTag            = 'engine-v0.1.11'
         splitTunnel          = $false
+        bypassPresets        = @('warframe')
+        bypassPortsCustom    = @()
     }
+}
+
+function Get-BypassPresetCatalog {
+    return [ordered]@{
+        warframe = @('udp:4950-4955', 'tcp:4950-4955', 'tcp:6695-6699')
+        lol      = @('udp:5000-5500', 'udp:8393')
+        rust     = @('udp:28015-28050')
+        steam    = @('udp:27000-27100')
+    }
+}
+
+function Get-BypassPresetIds {
+    return @('warframe', 'lol', 'rust', 'steam')
+}
+
+function Expand-BypassCustomPortLines {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return @() }
+    $out = New-Object System.Collections.Generic.List[string]
+    foreach ($line in ($Text -split "(`r`n|`n|`r)")) {
+        foreach ($part in ($line -split '[,;]+')) {
+            $part = ([string]$part).Trim()
+            if ($part) { [void]$out.Add($part) }
+        }
+    }
+    return @($out)
+}
+
+function Get-EngineBypassRuleSpecs {
+    param($Cfg = $null)
+    if (-not $Cfg) { $Cfg = Get-Config }
+    $rules = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $catalog = Get-BypassPresetCatalog
+    $presets = @()
+    if ($Cfg.PSObject.Properties.Name -contains 'bypassPresets' -and $Cfg.bypassPresets) {
+        $presets = @($Cfg.bypassPresets)
+    }
+    foreach ($id in $presets) {
+        $key = [string]$id
+        if ($catalog.Contains($key)) {
+            foreach ($spec in $catalog[$key]) { [void]$rules.Add([string]$spec) }
+        }
+    }
+    if ($Cfg.PSObject.Properties.Name -contains 'bypassPortsCustom' -and $Cfg.bypassPortsCustom) {
+        foreach ($spec in @($Cfg.bypassPortsCustom)) {
+            $spec = ([string]$spec).Trim()
+            if ($spec) { [void]$rules.Add($spec) }
+        }
+    }
+    return @($rules)
 }
 
 function Merge-ConfigWithDefaults {
@@ -635,6 +687,9 @@ function Get-EngineRunArgs {
     if (Get-ConfigBool $cfg 'splitTunnel' $false) {
         $parts += '--split-tunnel'
     }
+    foreach ($rule in (Get-EngineBypassRuleSpecs $cfg)) {
+        $parts += @('--bypass-rule', $rule)
+    }
     if ($VerboseLog) { $parts += '-v' }
     return $parts
 }
@@ -1007,7 +1062,9 @@ function Save-AmfetaminSettings {
         [bool]$AutoTuneTtl,
         [bool]$Warmup,
         [bool]$SplitTunnel,
-        [bool]$EngineVerbose
+        [bool]$EngineVerbose,
+        [string[]]$BypassPresets = $null,
+        [string[]]$BypassPortsCustom = $null
     )
     $vals = @{}
     if ($DohUpstream) { $vals.dohUpstream = $DohUpstream }
@@ -1016,6 +1073,8 @@ function Save-AmfetaminSettings {
     if ($null -ne $Warmup) { $vals.warmup = $Warmup }
     if ($null -ne $SplitTunnel) { $vals.splitTunnel = $SplitTunnel }
     if ($null -ne $EngineVerbose) { $vals.engineVerbose = $EngineVerbose }
+    if ($null -ne $BypassPresets) { $vals.bypassPresets = @($BypassPresets) }
+    if ($null -ne $BypassPortsCustom) { $vals.bypassPortsCustom = @($BypassPortsCustom) }
     Set-ConfigValues $vals
     Sync-LauncherToDevice
     $wasRunning = Test-AmfetaminRunning

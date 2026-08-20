@@ -11,6 +11,7 @@ type Config struct {
 	DoHEnabled        bool     `yaml:"doh_enabled" mapstructure:"doh_enabled"`
 	DoHUpstream       string   `yaml:"doh_upstream" mapstructure:"doh_upstream"`
 	SplitTunnel       bool     `yaml:"split_tunnel" mapstructure:"split_tunnel"`
+	BypassRules       []string `yaml:"bypass_rules" mapstructure:"bypass_rules"`
 }
 
 func DefaultConfig() Config {

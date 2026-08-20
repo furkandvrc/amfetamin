@@ -3,7 +3,6 @@
 package tun
 
 import (
-	"fmt"
 	"net/netip"
 
 	M "github.com/sagernet/sing/common/metadata"
@@ -22,8 +21,8 @@ func tunnelBypassReason(network string, destination M.Socksaddr) (bypass bool, r
 		return true, "non-global"
 	}
 
-	if isWarframeBypassPort(network, destination.Port) {
-		return true, fmt.Sprintf("warframe:%d", destination.Port)
+	if ok, label := matchConfiguredBypass(network, destination.Port); ok {
+		return true, "rule:" + label
 	}
 
 	return false, "tun"

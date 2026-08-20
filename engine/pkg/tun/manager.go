@@ -24,6 +24,7 @@ type Config struct {
 	FakeTTL      int
 	Interface    string
 	SplitTunnel  bool
+	BypassRules  []string
 }
 
 type Manager struct {
@@ -59,8 +60,13 @@ func NewManager(cfg Config, logger *logrus.Logger) *Manager {
 	}
 }
 
+func (m *Manager) initBypassRules() {
+	SetBypassRules(m.cfg.BypassRules)
+}
+
 func (m *Manager) Start(ctx context.Context) error {
 	m.ctx, m.cancel = context.WithCancel(ctx)
+	m.initBypassRules()
 
 	physIface := m.cfg.Interface
 	if physIface == "" {
@@ -127,7 +133,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		"tun":   tunName,
 		"ports": m.cfg.Ports,
 		"ttl":   m.cfg.FakeTTL,
-		"mode":  "full tunnel; warframe ports bypass",
+		"mode":  "full tunnel; user-configured port bypass",
 	}
 	if m.cfg.SplitTunnel {
 		fields["split_tunnel"] = "legacy flag (no routing change)"

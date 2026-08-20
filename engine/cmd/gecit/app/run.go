@@ -27,10 +27,12 @@ func init() {
 	runCmd.Flags().Int("restore-mss", 0, "restored MSS value, 0 = auto/1460 (Linux only)")
 	runCmd.Flags().String("cgroup", "/sys/fs/cgroup", "cgroup v2 path (Linux only)")
 	runCmd.Flags().BoolP("verbose", "v", false, "enable debug logging")
-	runCmd.Flags().Bool("split-tunnel", false, "only intercept HTTPS (443/tcp); bypass game UDP, non-443 TCP, and LAN traffic")
+	runCmd.Flags().Bool("split-tunnel", false, "legacy flag (no routing change)")
+	runCmd.Flags().StringArray("bypass-rule", nil, "bypass TUN for port/spec (e.g. udp:4950-4955, tcp:6695-6699, 27015)")
 
 	viper.BindPFlag("verbose", runCmd.Flags().Lookup("verbose"))
 	viper.BindPFlag("split_tunnel", runCmd.Flags().Lookup("split-tunnel"))
+	viper.BindPFlag("bypass_rules", runCmd.Flags().Lookup("bypass-rule"))
 	viper.BindPFlag("fake_ttl", runCmd.Flags().Lookup("fake-ttl"))
 	viper.BindPFlag("doh_enabled", runCmd.Flags().Lookup("doh"))
 	viper.BindPFlag("doh_upstream", runCmd.Flags().Lookup("doh-upstream"))
@@ -64,6 +66,7 @@ func runEngine(cmd *cobra.Command, args []string) error {
 		DoHEnabled:        viper.GetBool("doh_enabled"),
 		DoHUpstream:       viper.GetString("doh_upstream"),
 		SplitTunnel:       viper.GetBool("split_tunnel"),
+		BypassRules:       viper.GetStringSlice("bypass_rules"),
 	}
 
 	eng, err := newPlatformEngine(cfg, logger)

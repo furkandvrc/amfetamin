@@ -29,6 +29,7 @@ func newPlatformEngine(cfg engine.Config, logger *logrus.Logger) (engine.Engine,
 		FakeTTL:     cfg.FakeTTL,
 		Interface:   cfg.Interface,
 		SplitTunnel: cfg.SplitTunnel,
+		BypassRules: cfg.BypassRules,
 	}, logger)
 
 	return &tunEngine{

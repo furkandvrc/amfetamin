@@ -620,6 +620,20 @@ function Load-AmfetaminSettings {
         $r.SetWarmup.Checked = Get-ConfigBool $cfg 'warmup' $true
         $r.SetSplitTunnel.Checked = Get-ConfigBool $cfg 'splitTunnel' $false
         $r.SetVerbose.Checked = Get-ConfigBool $cfg 'engineVerbose' $false
+        $presetIds = Get-BypassPresetIds
+        $active = @()
+        if ($cfg.PSObject.Properties.Name -contains 'bypassPresets' -and $cfg.bypassPresets) {
+            $active = @($cfg.bypassPresets | ForEach-Object { [string]$_ })
+        }
+        for ($i = 0; $i -lt $r.SetBypassGames.Items.Count; $i++) {
+            $id = $presetIds[$i]
+            $r.SetBypassGames.SetItemChecked($i, ($id -in $active))
+        }
+        $customText = ''
+        if ($cfg.PSObject.Properties.Name -contains 'bypassPortsCustom' -and $cfg.bypassPortsCustom) {
+            $customText = ($cfg.bypassPortsCustom | ForEach-Object { [string]$_ }) -join "`r`n"
+        }
+        $r.SetBypassPorts.Text = $customText
     } catch {}
 }
 
@@ -936,6 +950,32 @@ function Show-AmfetaminMainForm {
     $tabSet.Controls.Add($setSplitTunnel)
     $y += 32
 
+    Add-SettingLabel (T 'label_bypass_games') $y
+    $setBypassGames = New-Object System.Windows.Forms.CheckedListBox
+    $setBypassGames.Location = New-Object System.Drawing.Point(20, ($y + 22))
+    $setBypassGames.Size = New-Object System.Drawing.Size(300, 72)
+    $setBypassGames.BackColor = $t.BgCard
+    $setBypassGames.ForeColor = $t.Text
+    $setBypassGames.CheckOnClick = $true
+    $Script:BypassPresetIds = Get-BypassPresetIds
+    foreach ($presetId in $Script:BypassPresetIds) {
+        [void]$setBypassGames.Items.Add((T "bypass_preset_$presetId"))
+    }
+    $tabSet.Controls.Add($setBypassGames)
+    $y += 102
+
+    Add-SettingLabel (T 'label_bypass_ports') $y
+    $setBypassPorts = New-Object System.Windows.Forms.TextBox
+    $setBypassPorts.Multiline = $true
+    $setBypassPorts.ScrollBars = 'Vertical'
+    $setBypassPorts.Location = New-Object System.Drawing.Point(20, ($y + 22))
+    $setBypassPorts.Size = New-Object System.Drawing.Size(300, 56)
+    $setBypassPorts.BackColor = $t.BgCard
+    $setBypassPorts.ForeColor = $t.Text
+    $setBypassPorts.Font = New-Object System.Drawing.Font('Consolas', 9)
+    $tabSet.Controls.Add($setBypassPorts)
+    $y += 86
+
     $setVerbose = New-Object System.Windows.Forms.CheckBox
     $setVerbose.Text = (T 'chk_verbose')
     $setVerbose.ForeColor = $t.Text; $setVerbose.BackColor = $t.BgDeep
@@ -1024,6 +1064,8 @@ function Show-AmfetaminMainForm {
         SetAutoTune = $setAutoTune
         SetWarmup   = $setWarmup
         SetSplitTunnel = $setSplitTunnel
+        SetBypassGames = $setBypassGames
+        SetBypassPorts = $setBypassPorts
         SetVerbose  = $setVerbose
         DiagBox     = $diagBox
         UpdateLbl   = $updateLbl
@@ -1212,9 +1254,17 @@ function Show-AmfetaminMainForm {
 
     $btnSaveSettings.Add_Click({
         Invoke-AmfetaminUiAction {
+            $selectedPresets = @()
+            for ($i = 0; $i -lt $setBypassGames.Items.Count; $i++) {
+                if ($setBypassGames.GetItemChecked($i)) {
+                    $selectedPresets += $Script:BypassPresetIds[$i]
+                }
+            }
+            $customRules = Expand-BypassCustomPortLines $setBypassPorts.Text
             Save-AmfetaminSettings -DohUpstream $setDoh.SelectedItem -FakeTtl ([int]$setTtl.Value) `
                 -AutoTuneTtl $setAutoTune.Checked -Warmup $setWarmup.Checked `
-                -SplitTunnel $setSplitTunnel.Checked -EngineVerbose $setVerbose.Checked
+                -SplitTunnel $setSplitTunnel.Checked -EngineVerbose $setVerbose.Checked `
+                -BypassPresets $selectedPresets -BypassPortsCustom $customRules
         }
     })
 
