@@ -142,6 +142,14 @@ function Sync-ConfigToDevice {
     $merged | ConvertTo-Json -Depth 8 | Set-Content -Path $Script:ConfigPath -Encoding UTF8
 }
 
+function Repair-DeviceConfig {
+    Ensure-Dirs
+    if (-not (Test-Path -LiteralPath $Script:ConfigPath)) { return $false }
+    $cfg = Merge-ConfigWithDefaults (Get-Content $Script:ConfigPath -Raw | ConvertFrom-Json)
+    $cfg | ConvertTo-Json -Depth 8 | Set-Content -Path $Script:ConfigPath -Encoding UTF8
+    return $true
+}
+
 function Set-ConfigValues {
     param([hashtable]$Values)
     Ensure-Dirs
@@ -226,10 +234,7 @@ function Test-BypassTargetReachable {
 }
 
 function Invoke-FakeTtlAutoTune {
-    param(
-        [scriptblock]$Progress = $null,
-        [switch]$InstallMode
-    )
+    param([scriptblock]$Progress = $null)
 
     $cfg = Get-Config
     $testUrl = 'https://discord.com'
@@ -242,8 +247,7 @@ function Invoke-FakeTtlAutoTune {
     }
 
     $candidates = Get-FakeTtlCandidates
-    $modeLabel = if ($InstallMode) { 'kurulum' } else { 'tam' }
-    Write-LauncherLog ('TTL otomatik ayar basladi (' + $modeLabel + '; ' + $testUrl + '; adaylar: ' + ($candidates -join ',') + ')')
+    Write-LauncherLog ('TTL otomatik ayar basladi (' + $testUrl + '; adaylar: ' + ($candidates -join ',') + ')')
 
     $bestTtl = $null
     foreach ($ttl in $candidates) {
@@ -263,12 +267,6 @@ function Invoke-FakeTtlAutoTune {
             $running = @(Get-AmfetaminEngineProcesses)
             if ($running.Count -gt 0) {
                 Write-LauncherLog "TTL $ttl motor calisiyor (PID $($running[0].Id))"
-            }
-            if ($InstallMode) {
-                $bestTtl = $ttl
-                Write-LauncherLog "TTL $ttl kurulum modunda kabul edildi (motor calisiyor)"
-                if ($Progress) { & $Progress (T 'ttl_success' $ttl) }
-                break
             }
             Start-Sleep -Seconds 3
             if (Test-BypassTargetReachable -Url $testUrl -TimeoutSec $timeout) {
@@ -308,9 +306,6 @@ function Invoke-FakeTtlAutoTune {
     Sync-LauncherToDevice
     Invoke-EngineWarmup -NonBlocking
 
-    if ($InstallMode) {
-        return (T 'ttl_autotune_install_done' $bestTtl)
-    }
     if (Test-BypassTargetReachable -Url $testUrl -TimeoutSec $timeout) {
         return (T 'ttl_autotune_success' $bestTtl, $testUrl)
     }

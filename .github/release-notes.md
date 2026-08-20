@@ -15,6 +15,11 @@
 
 ---
 
+## v3.1.16
+
+### Windows
+- Complete v3.1.15 fix: remove install-only TTL shortcut and repair device config on startup
+
 ## v3.1.15
 
 ### Windows

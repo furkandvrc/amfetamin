@@ -111,6 +111,7 @@ try {
     }
     try {
         Ensure-Dirs
+        Repair-DeviceConfig | Out-Null
         Import-SyncedLauncherCore | Out-Null
     } catch {}
     $mutexName = 'Global\Amfetamin.furkandvrc.SingleInstance'
