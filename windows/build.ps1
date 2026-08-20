@@ -113,6 +113,23 @@ try {
         Ensure-Dirs
         Import-SyncedLauncherCore | Out-Null
     } catch {}
+    $mutexName = 'Global\Amfetamin.furkandvrc.SingleInstance'
+    $mutex = New-Object System.Threading.Mutex($false, $mutexName)
+    $ownsMutex = $false
+    try {
+        $ownsMutex = $mutex.WaitOne(0, $false)
+    } catch {
+        $ownsMutex = $true
+    }
+    if (-not $ownsMutex) {
+        Add-Type -AssemblyName System.Windows.Forms
+        [void][System.Windows.Forms.MessageBox]::Show(
+            (T 'msg_app_already_open'),
+            'amfetamin',
+            'OK',
+            'Information')
+        exit 0
+    }
     Show-AmfetaminSplash
     Show-AmfetaminMainForm
 } catch {

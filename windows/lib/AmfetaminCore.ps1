@@ -11,6 +11,7 @@ $Script:EngineTagFile = Join-Path $Script:BinDir 'engine-tag.txt'
 $Script:NpcapInstaller = Join-Path $Script:BinDir 'npcap-installer.exe'
 $Script:ConfigPath = Join-Path $Script:InstallRoot 'config.json'
 $Script:ServiceScript = Join-Path $Script:LibDir 'run-amfetamin-service.ps1'
+$Script:InstallInProgress = $false
 if ($null -eq $Script:EmbeddedLibFiles) { $Script:EmbeddedLibFiles = @{} }
 
 if (-not $env:AMFETAMIN_ROOT -and $PSScriptRoot) {
@@ -114,20 +115,40 @@ function Test-BypassTargetReachable {
         [string]$Url = 'https://discord.com',
         [int]$TimeoutSec = 15
     )
-    foreach ($method in @('Head', 'Get')) {
-        try {
-            $params = @{
-                Uri             = $Url
-                UseBasicParsing = $true
-                TimeoutSec      = $TimeoutSec
-                ErrorAction     = 'Stop'
-            }
-            if ($method -eq 'Head') { $params.Method = 'Head' }
-            $r = Invoke-WebRequest @params
-            if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 400) { return $true }
-        } catch {}
+    if ([string]::IsNullOrWhiteSpace($Url)) { return $false }
+
+    $job = Start-Job -ScriptBlock {
+        param($TargetUrl, $PerTryTimeoutSec)
+        foreach ($method in @('Head', 'Get')) {
+            try {
+                $params = @{
+                    Uri             = $TargetUrl
+                    UseBasicParsing = $true
+                    TimeoutSec      = $PerTryTimeoutSec
+                    ErrorAction     = 'Stop'
+                }
+                if ($method -eq 'Head') { $params.Method = 'Head' }
+                $r = Invoke-WebRequest @params
+                if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 400) { return $true }
+            } catch {}
+        }
+        return $false
+    } -ArgumentList @($Url, $TimeoutSec)
+
+    $waitSec = [Math]::Max(5, ($TimeoutSec * 2) + 3)
+    $done = Wait-Job -Job $job -Timeout $waitSec
+    if (-not $done) {
+        Stop-Job -Job $job -Force -ErrorAction SilentlyContinue
+        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        return $false
     }
-    return $false
+    try {
+        return [bool](Receive-Job -Job $job -ErrorAction Stop)
+    } catch {
+        return $false
+    } finally {
+        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Invoke-FakeTtlAutoTune {
@@ -157,6 +178,10 @@ function Invoke-FakeTtlAutoTune {
             if (-not (Test-AmfetaminRunning)) {
                 Write-LauncherLog "TTL $ttl ile motor baslamadi"
                 continue
+            }
+            $running = @(Get-AmfetaminEngineProcesses)
+            if ($running.Count -gt 0) {
+                Write-LauncherLog "TTL $ttl motor calisiyor (PID $($running[0].Id))"
             }
             Start-Sleep -Seconds 3
             if (Test-BypassTargetReachable -Url $testUrl -TimeoutSec $timeout) {
@@ -588,7 +613,7 @@ function Invoke-EngineWarmup {
                 } catch {}
             }
         }
-    } -ArgumentList (,$urls)
+    } -ArgumentList @(,$urls)
 
     if ($NonBlocking) {
         Write-LauncherLog 'Motor isinma arka planda baslatildi'
@@ -781,6 +806,8 @@ function Install-ToDevice {
 
     if (-not (Test-IsAdmin)) { throw (T 'err_admin_required') }
 
+    $Script:InstallInProgress = $true
+    try {
     Stop-ZeroTierIfRunning | Out-Null
     Write-AmfetaminLog -Message 'Cihaza kurulum basladi' -Level INFO -Audit
     $messages = @()
@@ -826,6 +853,9 @@ function Install-ToDevice {
 
     Write-AmfetaminLog -Message 'Cihaza kurulum tamamlandi' -Level INFO -Audit
     return ($messages -join "`n")
+    } finally {
+        $Script:InstallInProgress = $false
+    }
 }
 
 function Uninstall-FromDevice {

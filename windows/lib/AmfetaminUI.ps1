@@ -26,6 +26,7 @@ $Script:UiState = @{
     StatusTimer = $null
     LogTimer    = $null
     ToastTimer  = $null
+    InstallInProgress = $false
     ToastBar    = $null
     TrayIcon    = $null
     MainForm    = $null
@@ -122,6 +123,11 @@ function Update-AmfetaminDiscordPill {
         [System.Windows.Forms.Panel]$DashPage = $null
     )
     if (-not $PillDiscord) { return }
+    if ($Script:UiState.InstallInProgress -or $Script:InstallInProgress) {
+        $PillDiscord.Dot.ForeColor = $Muted
+        $PillDiscord.Value.Text = (T 'status_testing')
+        return
+    }
 
     if (-not $EngineRunning) {
         $Script:DiscordOk = $null
@@ -1071,6 +1077,17 @@ function Show-AmfetaminMainForm {
         }
 
         $wiz.Add_Shown({
+            $statusTimerWasRunning = $false
+            $logTimerWasRunning = $false
+            if ($Script:UiState.StatusTimer) {
+                $statusTimerWasRunning = $Script:UiState.StatusTimer.Enabled
+                $Script:UiState.StatusTimer.Stop()
+            }
+            if ($Script:UiState.LogTimer) {
+                $logTimerWasRunning = $Script:UiState.LogTimer.Enabled
+                $Script:UiState.LogTimer.Stop()
+            }
+            $Script:UiState.InstallInProgress = $true
             try {
                 $result = Install-ToDevice -Progress $progressFn
                 $wBar.Style = 'Continuous'; $wBar.Value = 100
@@ -1086,6 +1103,10 @@ function Show-AmfetaminMainForm {
                 [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, (T 'app_name'), 'OK', 'Error')
                 $wiz.DialogResult = 'Cancel'
                 $wiz.Close()
+            } finally {
+                $Script:UiState.InstallInProgress = $false
+                if ($Script:UiState.StatusTimer -and $statusTimerWasRunning) { $Script:UiState.StatusTimer.Start() }
+                if ($Script:UiState.LogTimer -and $logTimerWasRunning) { $Script:UiState.LogTimer.Start() }
             }
         })
         Show-AmfetaminModalDialog -Dialog $wiz -Owner $form
@@ -1136,6 +1157,17 @@ function Show-AmfetaminMainForm {
             $statusL.Location = New-Object System.Drawing.Point(24, 80)
             $wiz.Controls.Add($statusL)
             $wiz.Add_Shown({
+                $statusTimerWasRunning = $false
+                $logTimerWasRunning = $false
+                if ($Script:UiState.StatusTimer) {
+                    $statusTimerWasRunning = $Script:UiState.StatusTimer.Enabled
+                    $Script:UiState.StatusTimer.Stop()
+                }
+                if ($Script:UiState.LogTimer) {
+                    $logTimerWasRunning = $Script:UiState.LogTimer.Enabled
+                    $Script:UiState.LogTimer.Stop()
+                }
+                $Script:UiState.InstallInProgress = $true
                 try {
                     $msg = Invoke-ManualTtlRetune -Progress {
                         param($m)
@@ -1149,6 +1181,10 @@ function Show-AmfetaminMainForm {
                     [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, (T 'app_name'), 'OK', 'Error')
                     $wiz.DialogResult = 'Cancel'
                     $wiz.Close()
+                } finally {
+                    $Script:UiState.InstallInProgress = $false
+                    if ($Script:UiState.StatusTimer -and $statusTimerWasRunning) { $Script:UiState.StatusTimer.Start() }
+                    if ($Script:UiState.LogTimer -and $logTimerWasRunning) { $Script:UiState.LogTimer.Start() }
                 }
             })
             Show-AmfetaminModalDialog -Dialog $wiz -Owner $form

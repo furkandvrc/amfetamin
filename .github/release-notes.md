@@ -9,6 +9,13 @@
 
 ---
 
+## v3.1.13
+
+### Windows
+- Fix install wizard freezing after TTL 6 when engine is already running (Discord reachability test moved to background job)
+- Pause dashboard timers during install/TTL wizards to avoid UI reentrancy deadlocks
+- Block opening a second Amfetamin window while one instance is already running
+
 ## v3.1.12
 
 ### Windows
