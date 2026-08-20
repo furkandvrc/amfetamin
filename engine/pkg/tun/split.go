@@ -67,8 +67,8 @@ func shouldBypassSplitTunnel(network string, destination M.Socksaddr) bool {
 	}
 
 	if network == N.NetworkUDP {
-		// Discord voice/media uses UDP; route it through TUN like TCP/443.
-		if isDiscordDestination(destination) {
+		// Discord voice uses high UDP ports; DNS cache may miss media IPs.
+		if isDiscordDestination(destination) || destination.Port >= 50000 {
 			return false
 		}
 		return true

@@ -15,6 +15,15 @@
 
 ---
 
+## v3.1.19
+
+### Windows / Engine v0.1.7
+- **Fix:** Saving settings now **restarts the engine** so split tunnel / TTL changes apply immediately
+- **Fix:** Install and sync no longer overwrite your `splitTunnel` choice from the zip defaults
+- **Fix:** Install always runs TTL auto-tune again (ignores "auto tune TTL" off during install)
+- **Engine:** Split tunnel routes **high-port UDP (≥50000)** through TUN for Discord voice when DNS cache misses
+- Requires **engine-v0.1.7** (auto-downloaded on install)
+
 ## v3.1.18
 
 ### Windows / Engine v0.1.6

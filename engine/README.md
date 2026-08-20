@@ -4,7 +4,7 @@ DPI bypass engine used by amfetamin. Forked from [boratanrikulu/gecit](https://g
 
 ## Split tunnel (`--split-tunnel`)
 
-When enabled, **HTTPS (TCP/443)** to public IPs is intercepted for DPI bypass (Discord + browser). **Discord voice/media UDP** is also routed through the TUN when the destination was resolved from a Discord domain.
+When enabled, **HTTPS (TCP/443)** to public IPs is intercepted for DPI bypass (Discord + browser). **Discord voice/media UDP** is routed through the TUN when the destination matches a Discord DNS name or uses **UDP port ≥ 50000** (typical voice range).
 
 Bypassed traffic (not touched by TUN handler):
 
@@ -36,7 +36,7 @@ sudo bash amfetamin stop && sudo bash amfetamin start
 
 ## Release
 
-Tag `engine-v0.1.6` on GitHub with assets:
+Tag `engine-v0.1.7` on GitHub with assets:
 
 - `amfetamin-engine-darwin-arm64`
 - `amfetamin-engine-darwin-amd64`

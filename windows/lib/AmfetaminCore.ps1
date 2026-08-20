@@ -34,7 +34,7 @@ if (-not (Get-Command Get-AmfetaminUtf8ScriptBlock -ErrorAction SilentlyContinue
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminI18n.ps1'))
 
 # Motor indirme (amfetamin engine v0.1.5)
-$Script:EngineVersion = 'engine-v0.1.6'
+$Script:EngineVersion = 'engine-v0.1.7'
 $Script:EngineReleaseBase = 'https://github.com/furkandvrc/amfetamin/releases/download'
 $Script:EngineRemoteAsset = 'amfetamin-engine.exe'
 $Script:EngineChecksumFile = 'checksums.txt'
@@ -57,7 +57,7 @@ function Get-ProjectRoot {
 
 function Get-DefaultConfigValues {
     return @{
-        version            = '3.1.18'
+        version            = '3.1.19'
         dohUpstream        = 'cloudflare'
         fakeTtl              = 8
         autoTuneTtl          = $true
@@ -69,9 +69,9 @@ function Get-DefaultConfigValues {
         engineVerbose        = $false
         projectUrl           = 'https://github.com/furkandvrc/amfetamin'
         logMaxMb             = 5
-        engineVersion        = 'v0.1.6'
+        engineVersion        = 'v0.1.7'
         engineReleaseBase    = 'https://github.com/furkandvrc/amfetamin/releases/download'
-        engineTag            = 'engine-v0.1.6'
+        engineTag            = 'engine-v0.1.7'
         splitTunnel          = $true
     }
 }
@@ -132,9 +132,8 @@ function Sync-ConfigToDevice {
     if (Test-Path -LiteralPath $Script:ConfigPath) {
         $existing = Merge-ConfigWithDefaults (Get-Content $Script:ConfigPath -Raw | ConvertFrom-Json)
         $launcherKeys = @(
-            'version', 'engineVersion', 'engineTag', 'engineReleaseBase', 'splitTunnel',
-            'projectUrl', 'logMaxMb', 'autoTuneUrl', 'autoTuneTimeoutSec', 'fakeTtlCandidates',
-            'warmup', 'engineVerbose', 'autoTuneTtl'
+            'version', 'engineVersion', 'engineTag', 'engineReleaseBase',
+            'projectUrl', 'logMaxMb', 'autoTuneUrl', 'autoTuneTimeoutSec', 'fakeTtlCandidates'
         )
         foreach ($key in $launcherKeys) {
             if ($incoming.PSObject.Properties.Name -contains $key) {
@@ -633,7 +632,7 @@ function Get-EngineRunArgs {
            elseif ($cfg.PSObject.Properties.Name -contains 'fakeTtl' -and $cfg.fakeTtl) { [int]$cfg.fakeTtl }
            else { 0 }
     if ($ttl -gt 0) { $parts += @('--fake-ttl', [string]$ttl) }
-    if ($cfg.PSObject.Properties.Name -contains 'splitTunnel' -and $cfg.splitTunnel -eq $true) {
+    if (Get-ConfigBool $cfg 'splitTunnel' $true) {
         $parts += '--split-tunnel'
     }
     if ($VerboseLog) { $parts += '-v' }
@@ -779,7 +778,7 @@ echo amfetamin calisiyor. Kapatmak icin Ctrl+C
 "$($Script:EngineExe)" run --doh-upstream "$upstream"$(
     if ($cfg.PSObject.Properties['fakeTtl'] -and $cfg.fakeTtl) { " --fake-ttl $($cfg.fakeTtl)" } else { '' }
 )$(
-    if ($cfg.PSObject.Properties['splitTunnel'] -and $cfg.splitTunnel -eq $true) { ' --split-tunnel' } else { '' }
+    if (Get-ConfigBool $cfg 'splitTunnel' $true) { ' --split-tunnel' } else { '' }
 )$(
     if ($verbose) { ' -v' } else { '' }
 )
@@ -925,20 +924,11 @@ function Install-ToDevice {
     Register-AutoStartTask
 
     Stop-Amfetamin | Out-Null
-    Set-ConfigValues @{
-        autoTuneDone = $false
-        splitTunnel  = $true
-    }
+    Set-ConfigValues @{ autoTuneDone = $false }
     Write-LauncherLog 'Kurulum: TTL otomatik ayar zorunlu (onceki autoTuneDone sifirlandi)'
 
-    $cfg = Get-Config
-    if ($cfg.PSObject.Properties.Name -contains 'autoTuneTtl' -and $cfg.autoTuneTtl -eq $false) {
-        if ($Progress) { & $Progress (T 'progress_start_engine') }
-        Start-AmfetaminHidden | Out-Null
-    } else {
-        if ($Progress) { & $Progress (T 'progress_ttl_autotune') }
-        $messages += Invoke-FakeTtlAutoTune -Progress $Progress
-    }
+    if ($Progress) { & $Progress (T 'progress_ttl_autotune') }
+    $messages += Invoke-FakeTtlAutoTune -Progress $Progress
 
     if (-not (Test-AmfetaminRunning)) {
         throw (T 'err_install_engine_failed')
@@ -981,6 +971,22 @@ function Install-And-Start {
     Start-AmfetaminVisible
 }
 
+function Restart-AmfetaminEngine {
+    if (-not (Test-IsAdmin)) { throw (T 'err_admin_required') }
+    if (-not (Test-NpcapInstalled)) { throw (T 'err_npcap_not_installed') }
+    Stop-Amfetamin | Out-Null
+    if (Test-Path -LiteralPath $Script:EngineExe) {
+        try { & $Script:EngineExe cleanup 2>&1 | Out-Null } catch {}
+    }
+    Start-Sleep -Seconds 2
+    $argsLine = Get-EngineRunArgsLine
+    Write-LauncherLog "Motor yeniden baslatiliyor: $argsLine"
+    Start-AmfetaminHidden | Out-Null
+    if (-not (Test-AmfetaminRunning)) {
+        throw (T 'err_engine_start_failed' 'restart after settings')
+    }
+}
+
 function Save-AmfetaminSettings {
     param(
         [string]$DohUpstream,
@@ -999,6 +1005,11 @@ function Save-AmfetaminSettings {
     if ($null -ne $EngineVerbose) { $vals.engineVerbose = $EngineVerbose }
     Set-ConfigValues $vals
     Sync-LauncherToDevice
+    $wasRunning = Test-AmfetaminRunning
+    if ($wasRunning) {
+        Restart-AmfetaminEngine
+        return (T 'msg_settings_saved_restarted')
+    }
     return (T 'msg_settings_saved')
 }
 
