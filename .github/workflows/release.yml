@@ -47,9 +47,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${GITHUB_REF_NAME}"
+          NOTES="$(mktemp)"
+          bash scripts/extract-release-notes.sh "$TAG" > "$NOTES"
           gh release create "$TAG" \
             --title "amfetamin ${TAG#v}" \
-            --notes-file .github/release-notes.md \
+            --notes-file "$NOTES" \
             --latest \
             "artifacts/amfetamin-macos/amfetamin-macos.zip" \
             "artifacts/amfetamin-windows/amfetamin-windows.zip"

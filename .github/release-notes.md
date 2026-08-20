@@ -1,3 +1,9 @@
+<!-- Release notes format:
+  - Top "Download" block is included on every GitHub release.
+  - Each version section starts with `## vX.Y.Z` (or legacy `## What's new in vX.Y.Z`).
+  - CI publishes only the section matching the release tag.
+-->
+
 ## Download
 
 | Platform | File | Install |
