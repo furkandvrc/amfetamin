@@ -15,6 +15,13 @@
 
 ---
 
+## v3.1.18
+
+### Windows / Engine v0.1.6
+- Split tunnel now routes **Discord voice/media UDP** through TUN (game UDP still bypasses) — fixes voice channels stuck on Connecting
+- Split tunnel defaults to **on** at install; settings checkbox reads config reliably
+- Requires **engine-v0.1.6** (auto-downloaded on install when `engineTag` changes)
+
 ## v3.1.17
 
 ### Windows
@@ -76,7 +83,7 @@
 - Settings tab: **Split tunnel** checkbox
 
 ### Engine
-- Requires **engine-v0.1.5** (downloaded automatically on install)
+- Requires **engine-v0.1.6** (downloaded automatically on install)
 
 ---
 

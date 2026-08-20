@@ -34,7 +34,7 @@ if (-not (Get-Command Get-AmfetaminUtf8ScriptBlock -ErrorAction SilentlyContinue
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminI18n.ps1'))
 
 # Motor indirme (amfetamin engine v0.1.5)
-$Script:EngineVersion = 'engine-v0.1.5'
+$Script:EngineVersion = 'engine-v0.1.6'
 $Script:EngineReleaseBase = 'https://github.com/furkandvrc/amfetamin/releases/download'
 $Script:EngineRemoteAsset = 'amfetamin-engine.exe'
 $Script:EngineChecksumFile = 'checksums.txt'
@@ -57,7 +57,7 @@ function Get-ProjectRoot {
 
 function Get-DefaultConfigValues {
     return @{
-        version            = '3.1.17'
+        version            = '3.1.18'
         dohUpstream        = 'cloudflare'
         fakeTtl              = 8
         autoTuneTtl          = $true
@@ -69,9 +69,9 @@ function Get-DefaultConfigValues {
         engineVerbose        = $false
         projectUrl           = 'https://github.com/furkandvrc/amfetamin'
         logMaxMb             = 5
-        engineVersion        = 'v0.1.5'
+        engineVersion        = 'v0.1.6'
         engineReleaseBase    = 'https://github.com/furkandvrc/amfetamin/releases/download'
-        engineTag            = 'engine-v0.1.5'
+        engineTag            = 'engine-v0.1.6'
         splitTunnel          = $true
     }
 }
@@ -95,6 +95,20 @@ function Merge-ConfigWithDefaults {
         }
     }
     return $Cfg
+}
+
+function Get-ConfigBool {
+    param(
+        $Cfg,
+        [string]$Name,
+        [bool]$Default = $true
+    )
+    if (-not $Cfg -or $Cfg.PSObject.Properties.Name -notcontains $Name) { return $Default }
+    $v = $Cfg.$Name
+    if ($v -is [bool]) { return $v }
+    if ($v -is [string]) { return ($v -eq 'true' -or $v -eq '1') }
+    if ($v -is [int] -or $v -is [long] -or $v -is [decimal]) { return ($v -ne 0) }
+    return $Default
 }
 
 function Get-Config {
@@ -911,7 +925,10 @@ function Install-ToDevice {
     Register-AutoStartTask
 
     Stop-Amfetamin | Out-Null
-    Set-ConfigValues @{ autoTuneDone = $false }
+    Set-ConfigValues @{
+        autoTuneDone = $false
+        splitTunnel  = $true
+    }
     Write-LauncherLog 'Kurulum: TTL otomatik ayar zorunlu (onceki autoTuneDone sifirlandi)'
 
     $cfg = Get-Config

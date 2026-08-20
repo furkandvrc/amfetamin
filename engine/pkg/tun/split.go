@@ -4,7 +4,9 @@ package tun
 
 import (
 	"net/netip"
+	"strings"
 
+	gecitdns "github.com/boratanrikulu/gecit/pkg/dns"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 )
@@ -18,6 +20,42 @@ var splitTunnelRouteExcludes = []netip.Prefix{
 	netip.MustParsePrefix("224.0.0.0/4"),
 }
 
+func isDiscordHost(domain string) bool {
+	domain = strings.ToLower(strings.TrimSuffix(domain, "."))
+	switch domain {
+	case "discord.com", "discord.gg", "discord.media", "discordapp.com", "discordapp.net":
+		return true
+	}
+	suffixes := []string{
+		".discord.com",
+		".discord.gg",
+		".discord.media",
+		".discordapp.com",
+		".discordapp.net",
+		".discordcdn.com",
+	}
+	for _, sfx := range suffixes {
+		if strings.HasSuffix(domain, sfx) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDiscordDestination(destination M.Socksaddr) bool {
+	if !destination.IsValid() {
+		return false
+	}
+	if dns := gecitdns.GetDNSServer(); dns != nil {
+		for _, domain := range dns.DomainsForIP(destination.Addr.String()) {
+			if isDiscordHost(domain) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func shouldBypassSplitTunnel(network string, destination M.Socksaddr) bool {
 	if !destination.IsValid() {
 		return false
@@ -29,6 +67,10 @@ func shouldBypassSplitTunnel(network string, destination M.Socksaddr) bool {
 	}
 
 	if network == N.NetworkUDP {
+		// Discord voice/media uses UDP; route it through TUN like TCP/443.
+		if isDiscordDestination(destination) {
+			return false
+		}
 		return true
 	}
 

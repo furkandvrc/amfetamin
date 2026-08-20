@@ -616,10 +616,10 @@ function Load-AmfetaminSettings {
         $r.SetDoh.SelectedItem = [string]$cfg.dohUpstream
         if (-not $r.SetDoh.SelectedItem) { $r.SetDoh.SelectedIndex = 0 }
         $r.SetTtl.Value = [decimal](if ($cfg.fakeTtl) { [int]$cfg.fakeTtl } else { 8 })
-        $r.SetAutoTune.Checked = -not ($cfg.autoTuneTtl -eq $false)
-        $r.SetWarmup.Checked = -not ($cfg.warmup -eq $false)
-        $r.SetSplitTunnel.Checked = -not ($cfg.splitTunnel -eq $false)
-        $r.SetVerbose.Checked = -not ($cfg.engineVerbose -eq $false)
+        $r.SetAutoTune.Checked = Get-ConfigBool $cfg 'autoTuneTtl' $true
+        $r.SetWarmup.Checked = Get-ConfigBool $cfg 'warmup' $true
+        $r.SetSplitTunnel.Checked = Get-ConfigBool $cfg 'splitTunnel' $true
+        $r.SetVerbose.Checked = Get-ConfigBool $cfg 'engineVerbose' $false
     } catch {}
 }
 
@@ -931,6 +931,7 @@ function Show-AmfetaminMainForm {
     $setSplitTunnel = New-Object System.Windows.Forms.CheckBox
     $setSplitTunnel.Text = (T 'chk_split_tunnel')
     $setSplitTunnel.ForeColor = $t.Text; $setSplitTunnel.BackColor = $t.BgDeep
+    $setSplitTunnel.Checked = $true
     $setSplitTunnel.Location = New-Object System.Drawing.Point(20, $y); $setSplitTunnel.AutoSize = $true
     $tabSet.Controls.Add($setSplitTunnel)
     $y += 32
@@ -1110,6 +1111,7 @@ function Show-AmfetaminMainForm {
             }
         })
         Show-AmfetaminModalDialog -Dialog $wiz -Owner $form
+        Load-AmfetaminSettings
         Update-AmfetaminDashboard
         Refresh-AmfetaminLogView
     })

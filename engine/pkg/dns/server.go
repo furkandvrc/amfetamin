@@ -38,6 +38,19 @@ func (s *Server) PopDomain(ip string) string {
 	return domain
 }
 
+// DomainsForIP returns cached DNS names for an IP without removing them.
+func (s *Server) DomainsForIP(ip string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	q := s.ipQueue[ip]
+	if len(q) == 0 {
+		return nil
+	}
+	out := make([]string, len(q))
+	copy(out, q)
+	return out
+}
+
 func NewServer(upstream string, logger *logrus.Logger, dial DialFunc) *Server {
 	s := &Server{
 		resolver: NewResolver(upstream, dial),
