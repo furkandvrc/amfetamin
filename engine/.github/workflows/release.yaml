@@ -1,0 +1,150 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-bpf:
+    name: Compile BPF objects
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Install BPF toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm llvm-dev libbpf-dev
+
+      - name: Compile BPF (x86 + arm64)
+        run: make bpf-all
+
+      - name: Upload BPF objects
+        uses: actions/upload-artifact@v4
+        with:
+          name: bpf-objects
+          path: pkg/ebpf/bpf/bin/
+
+  build:
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    needs: build-bpf
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            cgo: 0
+            tags: ""
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+            cgo: 0
+            tags: ""
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+            cgo: 1
+            tags: with_gvisor
+          - os: darwin
+            arch: amd64
+            runner: macos-15-intel
+            cgo: 1
+            tags: with_gvisor
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+            cgo: 1
+            tags: with_gvisor
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Download BPF objects
+        uses: actions/download-artifact@v4
+        with:
+          name: bpf-objects
+          path: pkg/ebpf/bpf/bin/
+
+      - name: Install libpcap (macOS)
+        if: matrix.os == 'darwin'
+        run: brew install libpcap || true
+
+      - name: Install Npcap SDK and MinGW (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://npcap.com/dist/npcap-sdk-1.13.zip" -OutFile npcap-sdk.zip
+          Expand-Archive npcap-sdk.zip -DestinationPath npcap-sdk
+          choco install mingw -y
+          echo "CGO_CFLAGS=-I${{ github.workspace }}\npcap-sdk\Include" >> $env:GITHUB_ENV
+          echo "CGO_LDFLAGS=-L${{ github.workspace }}\npcap-sdk\Lib\x64 -lwpcap" >> $env:GITHUB_ENV
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: ${{ matrix.cgo }}
+        shell: bash
+        run: |
+          EXT=""
+          if [ "${{ matrix.os }}" = "windows" ]; then EXT=".exe"; fi
+          TAGS=""
+          if [ -n "${{ matrix.tags }}" ]; then TAGS="-tags ${{ matrix.tags }}"; fi
+          go build -ldflags="-s -w" $TAGS -o gecit-${{ matrix.os }}-${{ matrix.arch }}${EXT} ./cmd/gecit
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: gecit-${{ matrix.os }}-${{ matrix.arch }}
+          path: gecit-${{ matrix.os }}-${{ matrix.arch }}*
+
+  release:
+    name: Create release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release/
+          for dir in artifacts/gecit-*/; do
+            for file in "$dir"*; do
+              [ -f "$file" ] || continue
+              name=$(basename "$file")
+              cp "$file" "release/$name"
+              chmod +x "release/$name"
+              sha256sum "release/$name" >> release/checksums.txt
+            done
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release/gecit-linux-amd64
+            release/gecit-linux-arm64
+            release/gecit-darwin-amd64
+            release/gecit-darwin-arm64
+            release/gecit-windows-amd64.exe
+            release/checksums.txt

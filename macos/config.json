@@ -1,19 +1,26 @@
 {
-  "version": "3.1.8",
+  "version": "3.1.9",
   "dohUpstream": "cloudflare",
   "fakeTtl": 8,
   "autoTuneTtl": true,
   "autoTuneDone": false,
   "autoTuneUrl": "https://discord.com",
   "autoTuneTimeoutSec": 15,
-  "fakeTtlCandidates": [6, 8, 10, 12, 14],
+  "fakeTtlCandidates": [
+    6,
+    8,
+    10,
+    12,
+    14
+  ],
   "warmup": true,
   "engineVerbose": false,
   "projectUrl": "https://github.com/furkandvrc/amfetamin",
   "logMaxMb": 5,
-  "engineVersion": "v0.1.4",
+  "engineVersion": "v0.1.5",
   "engineReleaseBase": "https://github.com/furkandvrc/amfetamin/releases/download",
-  "engineTag": "engine-v0.1.4",
+  "engineTag": "engine-v0.1.5",
   "engineAssetArm64": "amfetamin-engine-darwin-arm64",
-  "engineAssetAmd64": "amfetamin-engine-darwin-amd64"
+  "engineAssetAmd64": "amfetamin-engine-darwin-amd64",
+  "splitTunnel": true
 }

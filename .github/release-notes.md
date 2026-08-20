@@ -5,6 +5,23 @@
 | **Windows** | `amfetamin-windows.zip` | Run `Amfetamin.exe`, then click **Install to device** |
 | **macOS** | `amfetamin-macos.zip` | `chmod +x setup.sh amfetamin lib/*.sh` then `sudo bash amfetamin install` |
 
+**Update:** Download the new zip, delete the old folder, open the new zip, then **Install to device**. Cleanup is not required.
+
+---
+
+## v3.1.9
+
+### All platforms
+- **Split tunnel** — only HTTPS (443/tcp) is intercepted for Discord and browser; game UDP, non-443 TCP, and LAN traffic bypass TUN
+- Engine auto-updates on install when `engineTag` changes (no manual binary delete)
+- Default: `splitTunnel: true`
+
+### Windows
+- Settings tab: **Split tunnel** checkbox
+
+### Engine
+- Requires **engine-v0.1.5** (downloaded automatically on install)
+
 ---
 
 ## What's new in v3.1.8

@@ -7,6 +7,7 @@ $Script:BinDir = Join-Path $Script:InstallRoot 'bin'
 $Script:LogDir = Join-Path $Script:InstallRoot 'logs'
 $Script:LibDir = Join-Path $Script:InstallRoot 'lib'
 $Script:EngineExe = Join-Path $Script:BinDir 'amfetamin.exe'
+$Script:EngineTagFile = Join-Path $Script:BinDir 'engine-tag.txt'
 $Script:NpcapInstaller = Join-Path $Script:BinDir 'npcap-installer.exe'
 $Script:ConfigPath = Join-Path $Script:InstallRoot 'config.json'
 $Script:ServiceScript = Join-Path $Script:LibDir 'run-amfetamin-service.ps1'
@@ -31,8 +32,8 @@ if (-not (Get-Command Get-AmfetaminUtf8ScriptBlock -ErrorAction SilentlyContinue
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminLogger.ps1'))
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminI18n.ps1'))
 
-# Motor indirme (amfetamin engine v0.1.4)
-$Script:EngineVersion = 'engine-v0.1.4'
+# Motor indirme (amfetamin engine v0.1.5)
+$Script:EngineVersion = 'engine-v0.1.5'
 $Script:EngineReleaseBase = 'https://github.com/furkandvrc/amfetamin/releases/download'
 $Script:EngineRemoteAsset = 'amfetamin-engine.exe'
 $Script:EngineChecksumFile = 'checksums.txt'
@@ -329,10 +330,42 @@ function Invoke-DownloadFile([string]$Url, [string]$Dest) {
     Invoke-WebRequest -Uri $Url -OutFile $Dest -UseBasicParsing
 }
 
+function Get-EngineReleaseInfo {
+    $cfg = Get-Config
+    $tag = $Script:EngineVersion
+    if ($cfg.PSObject.Properties.Name -contains 'engineTag' -and $cfg.engineTag) {
+        $tag = [string]$cfg.engineTag
+    }
+    $base = $Script:EngineReleaseBase
+    if ($cfg.PSObject.Properties.Name -contains 'engineReleaseBase' -and $cfg.engineReleaseBase) {
+        $base = [string]$cfg.engineReleaseBase
+    }
+    return @{
+        Tag  = $tag
+        Base = $base
+    }
+}
+
+function Test-EngineNeedsInstall {
+    $info = Get-EngineReleaseInfo
+    if (-not (Test-Path $Script:EngineExe)) { return $true }
+    if (-not (Test-Path $Script:EngineTagFile)) { return $true }
+    $installed = (Get-Content $Script:EngineTagFile -Raw -ErrorAction SilentlyContinue).Trim()
+    return $installed -ne $info.Tag
+}
+
 function Install-EngineBinary {
     Ensure-Dirs
     Stop-LegacyEngine
-    $base = "$($Script:EngineReleaseBase)/$($Script:EngineVersion)"
+    if (Test-AmfetaminRunning) {
+        Stop-Amfetamin | Out-Null
+        Start-Sleep -Seconds 1
+    }
+
+    $info = Get-EngineReleaseInfo
+    $base = "$($info.Base)/$($info.Tag)"
+    Write-LauncherLog "Motor guncelleniyor: $($info.Tag)"
+    Write-AmfetaminLog -Message "Motor guncelleniyor: $($info.Tag)" -Level INFO -Audit
     Invoke-DownloadFile "$base/$($Script:EngineChecksumFile)" (Join-Path $Script:BinDir 'checksums.txt')
     $tmp = Join-Path $Script:BinDir '_download.tmp'
     Invoke-DownloadFile "$base/$($Script:EngineRemoteAsset)" $tmp
@@ -346,12 +379,13 @@ function Install-EngineBinary {
         throw (T 'err_sha256_mismatch' $expectedHash, $actualHash)
     }
     Move-Item $tmp $Script:EngineExe -Force
+    Set-Content -Path $Script:EngineTagFile -Value $info.Tag -Encoding ASCII
     Write-LauncherLog 'amfetamin motor indirildi ve dogrulandi'
-    Write-AmfetaminLog -Message 'Motor binary dogrulandi' -Level INFO -Audit
+    Write-AmfetaminLog -Message "Motor binary dogrulandi ($($info.Tag))" -Level INFO -Audit
 }
 
 function Ensure-EngineBinary {
-    if (Test-Path $Script:EngineExe) { return }
+    if (-not (Test-EngineNeedsInstall)) { return }
     Install-EngineBinary
 }
 
@@ -439,6 +473,9 @@ function Get-EngineRunArgs {
            elseif ($cfg.PSObject.Properties.Name -contains 'fakeTtl' -and $cfg.fakeTtl) { [int]$cfg.fakeTtl }
            else { 0 }
     if ($ttl -gt 0) { $parts += @('--fake-ttl', [string]$ttl) }
+    if ($cfg.PSObject.Properties.Name -contains 'splitTunnel' -and $cfg.splitTunnel -eq $true) {
+        $parts += '--split-tunnel'
+    }
     if ($VerboseLog) { $parts += '-v' }
     return $parts
 }
@@ -544,6 +581,8 @@ title amfetamin
 echo amfetamin calisiyor. Kapatmak icin Ctrl+C
 "$EngineExe" run --doh-upstream "$upstream"$(
     if ($cfg.PSObject.Properties['fakeTtl'] -and $cfg.fakeTtl) { " --fake-ttl $($cfg.fakeTtl)" } else { '' }
+)$(
+    if ($cfg.PSObject.Properties['splitTunnel'] -and $cfg.splitTunnel -eq $true) { ' --split-tunnel' } else { '' }
 )$(
     if ($verbose) { ' -v' } else { '' }
 )
@@ -733,6 +772,7 @@ function Save-AmfetaminSettings {
         [int]$FakeTtl,
         [bool]$AutoTuneTtl,
         [bool]$Warmup,
+        [bool]$SplitTunnel,
         [bool]$EngineVerbose
     )
     $vals = @{}
@@ -740,6 +780,7 @@ function Save-AmfetaminSettings {
     if ($FakeTtl -gt 0) { $vals.fakeTtl = $FakeTtl }
     if ($null -ne $AutoTuneTtl) { $vals.autoTuneTtl = $AutoTuneTtl }
     if ($null -ne $Warmup) { $vals.warmup = $Warmup }
+    if ($null -ne $SplitTunnel) { $vals.splitTunnel = $SplitTunnel }
     if ($null -ne $EngineVerbose) { $vals.engineVerbose = $EngineVerbose }
     Set-ConfigValues $vals
     Sync-LauncherToDevice

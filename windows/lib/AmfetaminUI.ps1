@@ -612,6 +612,7 @@ function Load-AmfetaminSettings {
         $r.SetTtl.Value = [decimal](if ($cfg.fakeTtl) { [int]$cfg.fakeTtl } else { 8 })
         $r.SetAutoTune.Checked = -not ($cfg.autoTuneTtl -eq $false)
         $r.SetWarmup.Checked = -not ($cfg.warmup -eq $false)
+        $r.SetSplitTunnel.Checked = -not ($cfg.splitTunnel -eq $false)
         $r.SetVerbose.Checked = -not ($cfg.engineVerbose -eq $false)
     } catch {}
 }
@@ -921,6 +922,13 @@ function Show-AmfetaminMainForm {
     $tabSet.Controls.Add($setWarmup)
     $y += 32
 
+    $setSplitTunnel = New-Object System.Windows.Forms.CheckBox
+    $setSplitTunnel.Text = (T 'chk_split_tunnel')
+    $setSplitTunnel.ForeColor = $t.Text; $setSplitTunnel.BackColor = $t.BgDeep
+    $setSplitTunnel.Location = New-Object System.Drawing.Point(20, $y); $setSplitTunnel.AutoSize = $true
+    $tabSet.Controls.Add($setSplitTunnel)
+    $y += 32
+
     $setVerbose = New-Object System.Windows.Forms.CheckBox
     $setVerbose.Text = (T 'chk_verbose')
     $setVerbose.ForeColor = $t.Text; $setVerbose.BackColor = $t.BgDeep
@@ -1008,6 +1016,7 @@ function Show-AmfetaminMainForm {
         SetTtl      = $setTtl
         SetAutoTune = $setAutoTune
         SetWarmup   = $setWarmup
+        SetSplitTunnel = $setSplitTunnel
         SetVerbose  = $setVerbose
         DiagBox     = $diagBox
         UpdateLbl   = $updateLbl
@@ -1166,7 +1175,8 @@ function Show-AmfetaminMainForm {
     $btnSaveSettings.Add_Click({
         Invoke-AmfetaminUiAction {
             Save-AmfetaminSettings -DohUpstream $setDoh.SelectedItem -FakeTtl ([int]$setTtl.Value) `
-                -AutoTuneTtl $setAutoTune.Checked -Warmup $setWarmup.Checked -EngineVerbose $setVerbose.Checked
+                -AutoTuneTtl $setAutoTune.Checked -Warmup $setWarmup.Checked `
+                -SplitTunnel $setSplitTunnel.Checked -EngineVerbose $setVerbose.Checked
         }
     })
 

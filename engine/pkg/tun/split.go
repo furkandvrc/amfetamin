@@ -1,0 +1,40 @@
+//go:build (darwin || windows) && with_gvisor
+
+package tun
+
+import (
+	"net/netip"
+
+	M "github.com/sagernet/sing/common/metadata"
+	N "github.com/sagernet/sing/common/network"
+)
+
+var splitTunnelRouteExcludes = []netip.Prefix{
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.168.0.0/16"),
+	netip.MustParsePrefix("127.0.0.0/8"),
+	netip.MustParsePrefix("169.254.0.0/16"),
+	netip.MustParsePrefix("224.0.0.0/4"),
+}
+
+func shouldBypassSplitTunnel(network string, destination M.Socksaddr) bool {
+	if !destination.IsValid() {
+		return false
+	}
+
+	addr := destination.Addr
+	if !addr.IsGlobalUnicast() || addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast() {
+		return true
+	}
+
+	if network == N.NetworkUDP {
+		return true
+	}
+
+	if network == N.NetworkTCP && destination.Port != 443 {
+		return true
+	}
+
+	return false
+}

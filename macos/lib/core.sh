@@ -34,6 +34,7 @@ LOG_DIR="$INSTALL_ROOT/logs"
 LIB_DIR="$INSTALL_ROOT/lib"
 CONFIG_PATH="$INSTALL_ROOT/config.json"
 ENGINE_BIN="$BIN_DIR/amfetamin-engine"
+ENGINE_TAG_FILE="$BIN_DIR/engine-tag.txt"
 LAUNCHD_LABEL="com.furkandvrc.amfetamin"
 LAUNCHD_PLIST="/Library/LaunchDaemons/${LAUNCHD_LABEL}.plist"
 PID_FILE="$INSTALL_ROOT/amfetamin.pid"
@@ -141,11 +142,29 @@ install_engine_binary() {
 
     chmod +x "$tmp"
     mv "$tmp" "$ENGINE_BIN"
-    log_info "Motor kuruldu: $ENGINE_BIN" audit
+    printf '%s\n' "$tag" > "$ENGINE_TAG_FILE"
+    log_info "Motor kuruldu: $ENGINE_BIN ($tag)" audit
+}
+
+engine_needs_install() {
+    local want=""
+    want="$(cfg_get engineTag)"
+    [[ -z "$want" ]] && return 0
+    [[ ! -x "$ENGINE_BIN" ]] && return 0
+    [[ ! -f "$ENGINE_TAG_FILE" ]] && return 0
+    [[ "$(tr -d '[:space:]' < "$ENGINE_TAG_FILE")" != "$want" ]]
 }
 
 ensure_engine_binary() {
-    [[ -x "$ENGINE_BIN" ]] || install_engine_binary
+    if ! engine_needs_install; then
+        return 0
+    fi
+    if is_engine_running; then
+        stop_engine quiet || true
+        sleep 1
+    fi
+    log_info "Motor guncelleniyor: $(cfg_get engineTag)" audit
+    install_engine_binary
 }
 
 sync_to_install() {
@@ -238,6 +257,7 @@ start_engine_hidden() {
     [[ "$ttl_override" -gt 0 ]] && cfg_ttl="$ttl_override"
     engine_args=( run --doh-upstream "$(cfg_get dohUpstream)" )
     [[ -n "$cfg_ttl" && "$cfg_ttl" -gt 0 ]] && engine_args+=( --fake-ttl "$cfg_ttl" )
+    [[ "$(cfg_get splitTunnel)" == "true" ]] && engine_args+=( --split-tunnel )
     [[ "$verbose" == "true" ]] && engine_args+=( -v )
 
     "$ENGINE_BIN" "${engine_args[@]}" >> "$LOG_DIR/engine.log" 2>&1 &
@@ -509,5 +529,6 @@ show_status() {
     echo "launchd:   $([[ -f "$LAUNCHD_PLIST" ]] && echo installed || echo missing)"
     echo "App:       $(menubar_installed && echo installed || echo missing)"
     echo "fakeTtl:   $(cfg_get fakeTtl)"
+    echo "splitTunnel: $(cfg_get splitTunnel)"
     echo "Location:  $INSTALL_ROOT"
 }
