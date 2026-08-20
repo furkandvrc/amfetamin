@@ -438,6 +438,27 @@ function Sync-LauncherToDevice {
     Write-LauncherLog 'amfetamin dosyalari cihaza kopyalandi'
 }
 
+function Import-SyncedLauncherCore {
+    param([switch]$PreferInstalled)
+
+    # Exe icine gomulu eski Core calisirken zip/lib guncel olabilir; diskten yukle.
+    $paths = @()
+    if ($PreferInstalled) {
+        $paths += Join-Path $Script:LibDir 'AmfetaminCore.ps1'
+        $paths += Join-Path (Get-ProjectRoot) 'lib\AmfetaminCore.ps1'
+    } else {
+        $paths += Join-Path (Get-ProjectRoot) 'lib\AmfetaminCore.ps1'
+        $paths += Join-Path $Script:LibDir 'AmfetaminCore.ps1'
+    }
+    foreach ($corePath in $paths) {
+        if (-not (Test-Path -LiteralPath $corePath)) { continue }
+        Write-LauncherLog "Launcher core yeniden yukleniyor: $corePath"
+        . (Get-AmfetaminUtf8ScriptBlock $corePath)
+        return $true
+    }
+    return $false
+}
+
 function Install-NpcapAuto {
     if (Test-NpcapInstalled) { return $null }
     if (-not (Test-IsAdmin)) { throw (T 'err_admin_required') }
@@ -510,9 +531,34 @@ function Start-EngineProcess {
     if (-not $Script:RunLog) { Initialize-AmfetaminLogging }
 
     $argLine = Format-EngineArgumentLine $EngineArgs
-    return Start-Process -FilePath $Script:EngineExe -ArgumentList $argLine `
-        -WorkingDirectory $Script:BinDir -WindowStyle Hidden -PassThru `
-        -RedirectStandardError $Script:RunLog
+    if ([string]::IsNullOrWhiteSpace($argLine)) {
+        throw (T 'err_engine_start_failed' 'empty argument line')
+    }
+
+    try {
+        [System.IO.File]::WriteAllText($Script:RunLog, '', (New-Object System.Text.UTF8Encoding $false))
+    } catch {}
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $Script:EngineExe
+    $psi.WorkingDirectory = $Script:BinDir
+    $psi.Arguments = $argLine
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardError = $true
+
+    $proc = New-Object System.Diagnostics.Process
+    $proc.StartInfo = $psi
+    $logPath = $Script:RunLog
+    $proc.add_ErrorDataReceived({
+        param($sender, $eventArgs)
+        if ($null -ne $eventArgs.Data -and $logPath) {
+            [System.IO.File]::AppendAllText($logPath, $eventArgs.Data + [Environment]::NewLine)
+        }
+    })
+    [void]$proc.Start()
+    $proc.BeginErrorReadLine()
+    return $proc
 }
 
 function Invoke-EngineWarmup {
@@ -746,6 +792,7 @@ function Install-ToDevice {
 
     if ($Progress) { & $Progress (T 'progress_sync_files') }
     Sync-LauncherToDevice
+    Import-SyncedLauncherCore -PreferInstalled | Out-Null
     if ($Progress) { & $Progress (T 'progress_download_engine') }
     Ensure-EngineBinary
     Register-AutoStartTask

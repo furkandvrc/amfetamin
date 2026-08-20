@@ -9,6 +9,12 @@
 
 ---
 
+## v3.1.12
+
+### Windows
+- Fixed Install still using **embedded old scripts** after sync — reloads `lib\AmfetaminCore.ps1` from disk before engine/TTL steps
+- Engine start uses `ProcessStartInfo.Arguments` (avoids PowerShell `Start-Process -ArgumentList` empty-args bug on older exes)
+
 ## v3.1.11
 
 ### Windows

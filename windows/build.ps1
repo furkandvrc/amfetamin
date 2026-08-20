@@ -109,6 +109,10 @@ try {
         Request-Admin | Out-Null
         exit 0
     }
+    try {
+        Ensure-Dirs
+        Import-SyncedLauncherCore | Out-Null
+    } catch {}
     Show-AmfetaminSplash
     Show-AmfetaminMainForm
 } catch {
