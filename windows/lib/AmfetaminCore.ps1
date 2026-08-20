@@ -57,7 +57,7 @@ function Get-ProjectRoot {
 
 function Get-DefaultConfigValues {
     return @{
-        version            = '3.1.15'
+        version            = '3.1.17'
         dohUpstream        = 'cloudflare'
         fakeTtl              = 8
         autoTuneTtl          = $true
@@ -833,7 +833,10 @@ function Invoke-AmfetaminCleanup {
     }
 
     try {
-        Set-ConfigValues @{ autoTuneDone = $false }
+        Set-ConfigValues @{
+            autoTuneDone = $false
+            fakeTtl      = (Get-DefaultConfigValues).fakeTtl
+        }
     } catch {}
 
     Write-LauncherLog 'tam temizlik tamamlandi'
@@ -907,11 +910,17 @@ function Install-ToDevice {
     Ensure-EngineBinary
     Register-AutoStartTask
 
-    if (Test-ShouldAutoTuneFakeTtl) {
+    Stop-Amfetamin | Out-Null
+    Set-ConfigValues @{ autoTuneDone = $false }
+    Write-LauncherLog 'Kurulum: TTL otomatik ayar zorunlu (onceki autoTuneDone sifirlandi)'
+
+    $cfg = Get-Config
+    if ($cfg.PSObject.Properties.Name -contains 'autoTuneTtl' -and $cfg.autoTuneTtl -eq $false) {
+        if ($Progress) { & $Progress (T 'progress_start_engine') }
+        Start-AmfetaminHidden | Out-Null
+    } else {
         if ($Progress) { & $Progress (T 'progress_ttl_autotune') }
         $messages += Invoke-FakeTtlAutoTune -Progress $Progress
-    } else {
-        Start-AmfetaminHidden | Out-Null
     }
 
     if (-not (Test-AmfetaminRunning)) {

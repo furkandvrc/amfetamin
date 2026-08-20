@@ -15,6 +15,12 @@
 
 ---
 
+## v3.1.17
+
+### Windows
+- Fix Install to device skipping TTL auto-tune when `autoTuneDone` was already true from a previous session
+- Always reset `autoTuneDone` and stop the engine before install tuning; cleanup also resets `fakeTtl` to default
+
 ## v3.1.16
 
 ### Windows
