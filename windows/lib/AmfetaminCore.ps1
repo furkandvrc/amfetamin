@@ -55,6 +55,48 @@ function Get-ProjectRoot {
     return $Script:InstallRoot
 }
 
+function Get-DefaultConfigValues {
+    return @{
+        version            = '3.1.15'
+        dohUpstream        = 'cloudflare'
+        fakeTtl              = 8
+        autoTuneTtl          = $true
+        autoTuneDone         = $false
+        autoTuneUrl          = 'https://discord.com'
+        autoTuneTimeoutSec   = 15
+        fakeTtlCandidates    = @(6, 8, 10, 12, 14)
+        warmup               = $true
+        engineVerbose        = $false
+        projectUrl           = 'https://github.com/furkandvrc/amfetamin'
+        logMaxMb             = 5
+        engineVersion        = 'v0.1.5'
+        engineReleaseBase    = 'https://github.com/furkandvrc/amfetamin/releases/download'
+        engineTag            = 'engine-v0.1.5'
+        splitTunnel          = $true
+    }
+}
+
+function Merge-ConfigWithDefaults {
+    param($Cfg)
+    if (-not $Cfg) { return $null }
+    foreach ($entry in (Get-DefaultConfigValues).GetEnumerator()) {
+        $key = [string]$entry.Key
+        $defaultValue = $entry.Value
+        $hasProp = $Cfg.PSObject.Properties.Name -contains $key
+        $current = if ($hasProp) { $Cfg.$key } else { $null }
+        $missing = -not $hasProp
+        $emptyString = ($current -is [string] -and [string]::IsNullOrWhiteSpace($current))
+        if ($missing -or $emptyString) {
+            if ($missing) {
+                $Cfg | Add-Member -NotePropertyName $key -NotePropertyValue $defaultValue -Force
+            } else {
+                $Cfg.$key = $defaultValue
+            }
+        }
+    }
+    return $Cfg
+}
+
 function Get-Config {
     $paths = @(
         $Script:ConfigPath,
@@ -62,10 +104,42 @@ function Get-Config {
     )
     foreach ($configPath in $paths) {
         if (Test-Path $configPath) {
-            return Get-Content $configPath -Raw | ConvertFrom-Json
+            return (Merge-ConfigWithDefaults (Get-Content $configPath -Raw | ConvertFrom-Json))
         }
     }
     throw (T 'err_config_not_found')
+}
+
+function Sync-ConfigToDevice {
+    param([string]$SourcePath)
+
+    Ensure-Dirs
+    $incoming = Merge-ConfigWithDefaults (Get-Content $SourcePath -Raw | ConvertFrom-Json)
+    if (Test-Path -LiteralPath $Script:ConfigPath) {
+        $existing = Merge-ConfigWithDefaults (Get-Content $Script:ConfigPath -Raw | ConvertFrom-Json)
+        $launcherKeys = @(
+            'version', 'engineVersion', 'engineTag', 'engineReleaseBase', 'splitTunnel',
+            'projectUrl', 'logMaxMb', 'autoTuneUrl', 'autoTuneTimeoutSec', 'fakeTtlCandidates',
+            'warmup', 'engineVerbose', 'autoTuneTtl'
+        )
+        foreach ($key in $launcherKeys) {
+            if ($incoming.PSObject.Properties.Name -contains $key) {
+                $existing.$key = $incoming.$key
+            }
+        }
+        foreach ($prop in $incoming.PSObject.Properties) {
+            if ($existing.PSObject.Properties.Name -notcontains $prop.Name) {
+                $existing | Add-Member -NotePropertyName $prop.Name -NotePropertyValue $prop.Value -Force
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$existing.dohUpstream)) {
+            $existing.dohUpstream = (Get-DefaultConfigValues).dohUpstream
+        }
+        $merged = Merge-ConfigWithDefaults $existing
+    } else {
+        $merged = $incoming
+    }
+    $merged | ConvertTo-Json -Depth 8 | Set-Content -Path $Script:ConfigPath -Encoding UTF8
 }
 
 function Set-ConfigValues {
@@ -448,9 +522,12 @@ function Sync-LauncherToDevice {
 
     $configSrc = Join-Path $projectRoot 'config.json'
     if (-not [string]::IsNullOrWhiteSpace($configSrc) -and (Test-Path -LiteralPath $configSrc)) {
-        Copy-Item -LiteralPath $configSrc -Destination $Script:ConfigPath -Force
+        Sync-ConfigToDevice -SourcePath $configSrc
     } elseif ($Script:EmbeddedConfigJson) {
-        [System.IO.File]::WriteAllText($Script:ConfigPath, $Script:EmbeddedConfigJson, (New-Object System.Text.UTF8Encoding $false))
+        $tmp = Join-Path $Script:InstallRoot 'config.embedded.json'
+        [System.IO.File]::WriteAllText($tmp, $Script:EmbeddedConfigJson, (New-Object System.Text.UTF8Encoding $false))
+        Sync-ConfigToDevice -SourcePath $tmp
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
     } else {
         throw (T 'err_config_not_found')
     }
@@ -538,7 +615,11 @@ function Get-EngineRunArgs {
         [int]$FakeTtlOverride = 0
     )
     $cfg = Get-Config
-    $parts = @('run', '--doh-upstream', [string]$cfg.dohUpstream)
+    $upstream = [string]$cfg.dohUpstream
+    if ([string]::IsNullOrWhiteSpace($upstream)) {
+        throw (T 'err_engine_start_failed' 'dohUpstream is empty in config')
+    }
+    $parts = @('run', '--doh-upstream', $upstream)
     $ttl = if ($FakeTtlOverride -gt 0) { $FakeTtlOverride }
            elseif ($cfg.PSObject.Properties.Name -contains 'fakeTtl' -and $cfg.fakeTtl) { [int]$cfg.fakeTtl }
            else { 0 }
@@ -833,7 +914,7 @@ function Install-ToDevice {
 
     if (Test-ShouldAutoTuneFakeTtl) {
         if ($Progress) { & $Progress (T 'progress_ttl_autotune') }
-        $messages += Invoke-FakeTtlAutoTune -Progress $Progress -InstallMode
+        $messages += Invoke-FakeTtlAutoTune -Progress $Progress
     } else {
         Start-AmfetaminHidden | Out-Null
     }

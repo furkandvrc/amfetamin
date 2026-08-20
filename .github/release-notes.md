@@ -15,6 +15,14 @@
 
 ---
 
+## v3.1.15
+
+### Windows
+- Fix empty `dohUpstream` in device config (minimal zip config was overwriting settings on sync)
+- Restore full `windows/config.json` defaults (`dohUpstream: cloudflare`, TTL candidates, etc.)
+- Merge device config on sync instead of blind overwrite; repair missing fields on startup
+- Install uses full Discord TTL auto-tune again (removed false-positive install-only TTL accept)
+
 ## v3.1.14
 
 ### Windows

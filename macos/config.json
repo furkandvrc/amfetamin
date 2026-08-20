@@ -1,5 +1,5 @@
 {
-  "version": "3.1.14",
+  "version": "3.1.15",
   "dohUpstream": "cloudflare",
   "fakeTtl": 8,
   "autoTuneTtl": true,
