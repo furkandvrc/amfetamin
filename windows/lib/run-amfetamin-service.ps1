@@ -46,8 +46,7 @@ function Ensure-AmfetaminRunning {
             Write-ServiceLog 'Motor argumanlari bos — baslatma atlandi'
             return
         }
-        Start-Process -FilePath $Script:EngineExe -ArgumentList $engineArgs -WorkingDirectory $Script:BinDir `
-            -WindowStyle Hidden -RedirectStandardError $Script:RunLog
+        Start-EngineProcess -EngineArgs $engineArgs | Out-Null
         Start-Sleep -Seconds 3
         if (Test-AmfetaminRunning) {
             Invoke-EngineWarmup -NonBlocking

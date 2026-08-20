@@ -178,7 +178,12 @@ function Invoke-FakeTtlAutoTune {
         Write-LauncherLog "Uygun TTL bulunamadi, varsayilan kullaniliyor: $bestTtl"
         Stop-Amfetamin | Out-Null
         Start-Sleep -Seconds 1
-        Start-AmfetaminHidden -FakeTtlOverride $bestTtl -SkipWarmup | Out-Null
+        try {
+            Start-AmfetaminHidden -FakeTtlOverride $bestTtl -SkipWarmup | Out-Null
+        } catch {
+            Write-LauncherLog "Varsayilan TTL baslatma hatasi: $($_.Exception.Message)"
+            throw
+        }
     }
 
     Set-ConfigValues @{
@@ -485,6 +490,31 @@ function Get-EngineRunArgsLine {
     return ((Get-EngineRunArgs -VerboseLog:$VerboseLog) -join ' ')
 }
 
+function Format-EngineArgumentLine {
+    param([string[]]$EngineArgs)
+    return ($EngineArgs | ForEach-Object {
+        $s = [string]$_
+        if ($s -match '[\s"]') { '"' + ($s -replace '"', '\"') + '"' } else { $s }
+    }) -join ' '
+}
+
+function Start-EngineProcess {
+    param([string[]]$EngineArgs)
+
+    if (-not $EngineArgs -or @($EngineArgs).Count -eq 0) {
+        throw (T 'err_engine_start_failed' 'empty engine args')
+    }
+    if (-not (Test-Path -LiteralPath $Script:EngineExe)) {
+        throw (T 'err_engine_start_failed' "engine missing: $($Script:EngineExe)")
+    }
+    if (-not $Script:RunLog) { Initialize-AmfetaminLogging }
+
+    $argLine = Format-EngineArgumentLine $EngineArgs
+    return Start-Process -FilePath $Script:EngineExe -ArgumentList $argLine `
+        -WorkingDirectory $Script:BinDir -WindowStyle Hidden -PassThru `
+        -RedirectStandardError $Script:RunLog
+}
+
 function Invoke-EngineWarmup {
     param([switch]$NonBlocking)
 
@@ -545,9 +575,7 @@ function Start-AmfetaminHidden {
     $argParams = @{}
     if ($FakeTtlOverride -gt 0) { $argParams.FakeTtlOverride = $FakeTtlOverride }
     $engineArgs = @(Get-EngineRunArgs @argParams)
-    if ($engineArgs.Count -eq 0) { throw (T 'err_engine_start_failed' 'empty engine args') }
-    $proc = Start-Process -FilePath $Script:EngineExe -ArgumentList $engineArgs -WorkingDirectory $Script:BinDir `
-        -WindowStyle Hidden -PassThru -RedirectStandardError $Script:RunLog
+    $proc = Start-EngineProcess -EngineArgs $engineArgs
     Start-Sleep -Seconds 2
     if (-not $proc.HasExited -and (Test-AmfetaminRunning)) {
         Write-LauncherLog "amfetamin arka planda baslatildi (PID $($proc.Id))"
@@ -580,7 +608,7 @@ function Start-AmfetaminVisible {
 cd /d "$($Script:BinDir)"
 title amfetamin
 echo amfetamin calisiyor. Kapatmak icin Ctrl+C
-"$EngineExe" run --doh-upstream "$upstream"$(
+"$($Script:EngineExe)" run --doh-upstream "$upstream"$(
     if ($cfg.PSObject.Properties['fakeTtl'] -and $cfg.fakeTtl) { " --fake-ttl $($cfg.fakeTtl)" } else { '' }
 )$(
     if ($cfg.PSObject.Properties['splitTunnel'] -and $cfg.splitTunnel -eq $true) { ' --split-tunnel' } else { '' }

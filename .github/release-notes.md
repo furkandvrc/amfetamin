@@ -9,6 +9,12 @@
 
 ---
 
+## v3.1.11
+
+### Windows
+- Fixed Install / TTL auto-tune crash (`ArgumentList` empty) using reliable engine process launch
+- Release zip always rebuilds `Amfetamin.exe` with latest scripts
+
 ## v3.1.10
 
 ### Windows

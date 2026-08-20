@@ -8,11 +8,9 @@ $buildPs1 = Join-Path $win 'build.ps1'
 
 Write-Host '=== amfetamin Windows release pack ==='
 
-if (-not (Test-Path (Join-Path $win 'Amfetamin.exe'))) {
-    if (-not (Test-Path $buildPs1)) { throw 'windows/build.ps1 not found' }
-    Write-Host 'Amfetamin.exe missing, building...'
-    & $buildPs1
-}
+if (-not (Test-Path $buildPs1)) { throw 'windows/build.ps1 not found' }
+Write-Host 'Building Amfetamin.exe...'
+& $buildPs1
 
 if (-not (Test-Path (Join-Path $win 'Amfetamin.exe'))) {
     throw 'Amfetamin.exe build failed'
