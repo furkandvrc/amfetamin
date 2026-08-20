@@ -9,6 +9,11 @@
 
 ---
 
+## v3.1.10
+
+### Windows
+- Fixed Install to device crash (`ArgumentList` empty — PowerShell `$args` shadowing)
+
 ## v3.1.9
 
 ### All platforms
