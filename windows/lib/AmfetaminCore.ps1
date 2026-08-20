@@ -34,7 +34,7 @@ if (-not (Get-Command Get-AmfetaminUtf8ScriptBlock -ErrorAction SilentlyContinue
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminI18n.ps1'))
 
 # Motor indirme (amfetamin engine v0.1.5)
-$Script:EngineVersion = 'engine-v0.1.9'
+$Script:EngineVersion = 'engine-v0.1.10'
 $Script:EngineReleaseBase = 'https://github.com/furkandvrc/amfetamin/releases/download'
 $Script:EngineRemoteAsset = 'amfetamin-engine.exe'
 $Script:EngineChecksumFile = 'checksums.txt'
@@ -57,7 +57,7 @@ function Get-ProjectRoot {
 
 function Get-DefaultConfigValues {
     return @{
-        version            = '3.1.21'
+        version            = '3.1.22'
         dohUpstream        = 'cloudflare'
         fakeTtl              = 8
         autoTuneTtl          = $true
@@ -69,10 +69,10 @@ function Get-DefaultConfigValues {
         engineVerbose        = $false
         projectUrl           = 'https://github.com/furkandvrc/amfetamin'
         logMaxMb             = 5
-        engineVersion        = 'v0.1.9'
+        engineVersion        = 'v0.1.10'
         engineReleaseBase    = 'https://github.com/furkandvrc/amfetamin/releases/download'
-        engineTag            = 'engine-v0.1.9'
-        splitTunnel          = $true
+        engineTag            = 'engine-v0.1.10'
+        splitTunnel          = $false
     }
 }
 
@@ -632,7 +632,7 @@ function Get-EngineRunArgs {
            elseif ($cfg.PSObject.Properties.Name -contains 'fakeTtl' -and $cfg.fakeTtl) { [int]$cfg.fakeTtl }
            else { 0 }
     if ($ttl -gt 0) { $parts += @('--fake-ttl', [string]$ttl) }
-    if (Get-ConfigBool $cfg 'splitTunnel' $true) {
+    if (Get-ConfigBool $cfg 'splitTunnel' $false) {
         $parts += '--split-tunnel'
     }
     if ($VerboseLog) { $parts += '-v' }
@@ -778,7 +778,7 @@ echo amfetamin calisiyor. Kapatmak icin Ctrl+C
 "$($Script:EngineExe)" run --doh-upstream "$upstream"$(
     if ($cfg.PSObject.Properties['fakeTtl'] -and $cfg.fakeTtl) { " --fake-ttl $($cfg.fakeTtl)" } else { '' }
 )$(
-    if (Get-ConfigBool $cfg 'splitTunnel' $true) { ' --split-tunnel' } else { '' }
+    if (Get-ConfigBool $cfg 'splitTunnel' $false) { ' --split-tunnel' } else { '' }
 )$(
     if ($verbose) { ' -v' } else { '' }
 )

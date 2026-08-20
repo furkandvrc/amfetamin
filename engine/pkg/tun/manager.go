@@ -127,9 +127,10 @@ func (m *Manager) Start(ctx context.Context) error {
 		"tun":   tunName,
 		"ports": m.cfg.Ports,
 		"ttl":   m.cfg.FakeTTL,
+		"mode":  "full tunnel; warframe ports bypass",
 	}
 	if m.cfg.SplitTunnel {
-		fields["split_tunnel"] = "443/tcp + discord UDP via TUN; game UDP/TCP bypass"
+		fields["split_tunnel"] = "legacy flag (no routing change)"
 	}
 	m.logger.WithFields(fields).Info("TUN engine active")
 

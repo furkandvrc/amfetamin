@@ -15,6 +15,14 @@
 
 ---
 
+## v3.1.22
+
+### Windows / Engine v0.1.10
+- **Revert** split-tunnel game routing — back to **full TUN** (pre-split behaviour): Discord voice, LoL, speedtest work again
+- **Warframe only bypass:** UDP/TCP **4950–4955** and TCP **6695–6699** go direct (official Warframe ports)
+- Split tunnel checkbox defaults **off** (legacy, no routing change when on)
+- Requires **engine-v0.1.10**
+
 ## v3.1.21
 
 ### Windows / Engine v0.1.9

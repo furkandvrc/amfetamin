@@ -26,41 +26,40 @@ func TestIsDiscordHost(t *testing.T) {
 	}
 }
 
-func TestShouldBypassSplitTunnelUDP(t *testing.T) {
-	game := M.SocksaddrFrom(netip.MustParseAddr("203.0.113.1"), 27015)
-	if !shouldBypassSplitTunnel(N.NetworkUDP, game) {
-		t.Error("game UDP should bypass split tunnel")
+func TestShouldBypassTunnelWarframe(t *testing.T) {
+	wfUDP := M.SocksaddrFrom(netip.MustParseAddr("203.0.113.1"), 4950)
+	if !shouldBypassTunnel(N.NetworkUDP, wfUDP) {
+		t.Error("Warframe UDP 4950 should bypass TUN")
 	}
-
-	voice := M.SocksaddrFrom(netip.MustParseAddr("203.0.113.1"), 50001)
-	if shouldBypassSplitTunnel(N.NetworkUDP, voice) {
-		t.Error("discord voice UDP should route through TUN (ISP blocks direct UDP)")
+	wfTCP := M.SocksaddrFrom(netip.MustParseAddr("203.0.113.1"), 6697)
+	if !shouldBypassTunnel(N.NetworkTCP, wfTCP) {
+		t.Error("Warframe TCP 6697 should bypass TUN")
 	}
 }
 
-func TestShouldBypassSplitTunnelTCP(t *testing.T) {
+func TestShouldBypassTunnelFullTunnel(t *testing.T) {
+	discordVoice := M.SocksaddrFrom(netip.MustParseAddr("104.29.142.99"), 19327)
+	if shouldBypassTunnel(N.NetworkUDP, discordVoice) {
+		t.Error("Discord voice UDP should use full TUN, not bypass")
+	}
+	riotUDP := M.SocksaddrFrom(netip.MustParseAddr("203.0.113.1"), 5223)
+	if shouldBypassTunnel(N.NetworkUDP, riotUDP) {
+		t.Error("LoL/other game UDP should use full TUN")
+	}
 	https := M.SocksaddrFrom(netip.MustParseAddr("203.0.113.1"), 443)
-	if shouldBypassSplitTunnel(N.NetworkTCP, https) {
+	if shouldBypassTunnel(N.NetworkTCP, https) {
 		t.Error("HTTPS should use TUN")
 	}
-
-	warframe := M.SocksaddrFrom(netip.MustParseAddr("203.0.113.1"), 4952)
-	if !shouldBypassSplitTunnel(N.NetworkTCP, warframe) {
-		t.Error("Warframe UPnP TCP should bypass")
-	}
-
-	noteDiscordIP(netip.MustParseAddr("203.0.113.50"))
-	discordTCP := M.SocksaddrFrom(netip.MustParseAddr("203.0.113.50"), 8443)
-	if shouldBypassSplitTunnel(N.NetworkTCP, discordTCP) {
-		t.Error("known Discord IP TCP should use TUN")
-	}
 }
 
-func TestIsGameUDPBypassPort(t *testing.T) {
-	if !isGameUDPBypassPort(27015) || !isGameUDPBypassPort(28015) || !isGameUDPBypassPort(5200) {
-		t.Error("expected game UDP ports to bypass")
+func TestIsWarframeBypassPort(t *testing.T) {
+	if !isWarframeBypassPort(N.NetworkUDP, 4950) || !isWarframeBypassPort(N.NetworkUDP, 4955) {
+		t.Error("Warframe default UDP ports")
 	}
-	if isGameUDPBypassPort(50001) {
-		t.Error("discord voice ports should not be in game bypass list")
+	if !isWarframeBypassPort(N.NetworkTCP, 6695) {
+		t.Error("Warframe TCP range")
+	}
+	if isWarframeBypassPort(N.NetworkUDP, 27015) {
+		t.Error("Steam ports should not bypass")
 	}
 }

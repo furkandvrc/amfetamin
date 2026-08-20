@@ -2,15 +2,14 @@
 
 DPI bypass engine used by amfetamin. Forked from [boratanrikulu/gecit](https://github.com/boratanrikulu/gecit).
 
-## Split tunnel (`--split-tunnel`)
+## Routing
 
-When enabled, **HTTPS (TCP/443)** to public IPs is intercepted for DPI bypass (Discord + browser). **All UDP bypasses** split tunnel (games + Discord voice/WebRTC); only TCP/443 is intercepted.
+**Default: full TUN** (all traffic proxied like pre-split builds). Discord voice UDP goes through TUN — required on blocked networks.
 
-Bypassed traffic (not touched by TUN handler):
+**Warframe bypass (always on):** UDP/TCP ports **4950–4955** and TCP **6695–6699** bypass TUN so UPnP/matchmaking work.
 
-- **Other UDP** (game traffic, etc.)
-- **TCP ports other than 443** (Warframe UPnP 4950–4955, Riot, Rust, etc.)
-- **LAN/private IPs** (192.168.x, 10.x, UPnP/NAT)
+The legacy `--split-tunnel` flag no longer changes routing.
+
 
 ## Build (macOS Apple Silicon)
 

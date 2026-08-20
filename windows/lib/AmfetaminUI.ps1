@@ -618,7 +618,7 @@ function Load-AmfetaminSettings {
         $r.SetTtl.Value = [decimal](if ($cfg.fakeTtl) { [int]$cfg.fakeTtl } else { 8 })
         $r.SetAutoTune.Checked = Get-ConfigBool $cfg 'autoTuneTtl' $true
         $r.SetWarmup.Checked = Get-ConfigBool $cfg 'warmup' $true
-        $r.SetSplitTunnel.Checked = Get-ConfigBool $cfg 'splitTunnel' $true
+        $r.SetSplitTunnel.Checked = Get-ConfigBool $cfg 'splitTunnel' $false
         $r.SetVerbose.Checked = Get-ConfigBool $cfg 'engineVerbose' $false
     } catch {}
 }
@@ -931,7 +931,7 @@ function Show-AmfetaminMainForm {
     $setSplitTunnel = New-Object System.Windows.Forms.CheckBox
     $setSplitTunnel.Text = (T 'chk_split_tunnel')
     $setSplitTunnel.ForeColor = $t.Text; $setSplitTunnel.BackColor = $t.BgDeep
-    $setSplitTunnel.Checked = $true
+    $setSplitTunnel.Checked = $false
     $setSplitTunnel.Location = New-Object System.Drawing.Point(20, $y); $setSplitTunnel.AutoSize = $true
     $tabSet.Controls.Add($setSplitTunnel)
     $y += 32
