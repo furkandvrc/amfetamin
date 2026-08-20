@@ -9,6 +9,10 @@ import (
 	M "github.com/sagernet/sing/common/metadata"
 )
 
+func IsDiscordHost(domain string) bool {
+	return isDiscordHost(domain)
+}
+
 func isDiscordHost(domain string) bool {
 	domain = strings.ToLower(strings.TrimSuffix(domain, "."))
 	switch domain {

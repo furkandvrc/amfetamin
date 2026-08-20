@@ -48,6 +48,11 @@ func (e *tunEngine) Start(ctx context.Context) error {
 			resumeSystemDNS()
 			return err
 		}
+		e.dns.SetResolveHook(func(domain string, ips []string) {
+			if gecittun.IsDiscordHost(domain) {
+				e.mgr.AddDiscordRoutes(ips)
+			}
+		})
 		if err := gecitdns.SetSystemDNS(); err != nil {
 			e.dns.Stop()
 			resumeSystemDNS()
@@ -82,4 +87,9 @@ func (e *tunEngine) Stop() error {
 	return nil
 }
 
-func (e *tunEngine) Mode() string { return "tun" }
+func (e *tunEngine) Mode() string {
+	if e.mgr.GameBypassMode() {
+		return "tun+game"
+	}
+	return "tun"
+}

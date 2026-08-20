@@ -9,6 +9,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type ResolveHook func(domain string, ips []string)
+
 type Server struct {
 	resolver Resolver
 	upstream string
@@ -16,6 +18,13 @@ type Server struct {
 	logger   *logrus.Logger
 	mu       sync.Mutex
 	ipQueue  map[string][]string
+	onResolve ResolveHook
+}
+
+func (s *Server) SetResolveHook(h ResolveHook) {
+	s.mu.Lock()
+	s.onResolve = h
+	s.mu.Unlock()
 }
 
 var globalDNS *Server
@@ -153,7 +162,11 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 			for _, ip := range ips {
 				s.ipQueue[ip] = append(s.ipQueue[ip], domain)
 			}
+			hook := s.onResolve
 			s.mu.Unlock()
+			if hook != nil {
+				hook(domain, ips)
+			}
 		}
 	}
 }

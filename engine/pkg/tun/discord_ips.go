@@ -22,6 +22,22 @@ func noteDiscordIP(addr netip.Addr) {
 	discordIPMu.Lock()
 	discordIPs[addr] = time.Now().Add(discordIPCacheTTL)
 	discordIPMu.Unlock()
+
+	if mgr := globalDiscordRouteMgr; mgr != nil {
+		mgr.noteDiscordRoute(addr)
+	}
+}
+
+var globalDiscordRouteMgr *Manager
+
+func registerDiscordRouteManager(m *Manager) {
+	globalDiscordRouteMgr = m
+}
+
+func unregisterDiscordRouteManager(m *Manager) {
+	if globalDiscordRouteMgr == m {
+		globalDiscordRouteMgr = nil
+	}
 }
 
 func isKnownDiscordIP(addr netip.Addr) bool {

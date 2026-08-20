@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"sync"
 	"time"
 
 	"github.com/boratanrikulu/gecit/pkg/seqtrack"
@@ -40,6 +41,8 @@ type Manager struct {
 	bindControl    control.Func
 	networkMonitor tun.NetworkUpdateMonitor
 	ifaceMonitor   tun.DefaultInterfaceMonitor
+	discordRoutes  map[netip.Prefix]struct{}
+	discordRoutesMu sync.Mutex
 }
 
 func NewManager(cfg Config, logger *logrus.Logger) *Manager {
@@ -54,9 +57,10 @@ func NewManager(cfg Config, logger *logrus.Logger) *Manager {
 		ports[p] = true
 	}
 	return &Manager{
-		cfg:         cfg,
-		targetPorts: ports,
-		logger:      logger,
+		cfg:           cfg,
+		targetPorts:   ports,
+		logger:        logger,
+		discordRoutes: make(map[netip.Prefix]struct{}),
 	}
 }
 
@@ -67,6 +71,7 @@ func (m *Manager) initBypassRules() {
 func (m *Manager) Start(ctx context.Context) error {
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.initBypassRules()
+	registerDiscordRouteManager(m)
 
 	physIface := m.cfg.Interface
 	if physIface == "" {
@@ -86,6 +91,10 @@ func (m *Manager) Start(ctx context.Context) error {
 	if err := m.initNetworking(physIface); err != nil {
 		m.rawSock.Close()
 		return err
+	}
+
+	if m.gameBypassMode() {
+		m.warmDiscordRoutesBeforeTUN(ctx)
 	}
 
 	tunOpts := m.tunOptions()
@@ -129,25 +138,37 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("start stack: %w", err)
 	}
 
+	mode := "full tunnel"
+	if m.gameBypassMode() {
+		mode = "discord-only TUN (game ports on physical NIC)"
+	}
 	fields := logrus.Fields{
 		"tun":   tunName,
 		"ports": m.cfg.Ports,
 		"ttl":   m.cfg.FakeTTL,
-		"mode":  "full tunnel; user-configured port bypass",
+		"mode":  mode,
 	}
 	if m.cfg.SplitTunnel {
 		fields["split_tunnel"] = "legacy flag (no routing change)"
 	}
 	if len(m.cfg.BypassRules) > 0 {
 		fields["bypass_rules"] = len(m.cfg.BypassRules)
+		fields["discord_routes"] = len(m.discordRoutePrefixes())
 	}
 	m.logger.WithFields(fields).Info("TUN engine active")
+
+	if m.gameBypassMode() {
+		go m.prefetchDiscordRoutes(m.ctx)
+	}
 
 	return nil
 }
 
+func (m *Manager) GameBypassMode() bool { return m.gameBypassMode() }
+
 func (m *Manager) Stop() error {
 	m.logger.Info("stopping TUN engine")
+	unregisterDiscordRouteManager(m)
 
 	if m.cancel != nil {
 		m.cancel()
@@ -182,7 +203,6 @@ func (m *Manager) dialServer(network, addr string, timeout time.Duration) (net.C
 func (m *Manager) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	ctrl := m.bindControl
 	if ctrl == nil {
-		// Not yet initialized (called before Start). Build a temporary bind.
 		finder := control.NewDefaultInterfaceFinder()
 		iface := m.cfg.Interface
 		if iface == "" {
@@ -206,8 +226,6 @@ func (m *Manager) startSeqTracker(iface string) error {
 	return nil
 }
 
-// initNetworking sets up interface binding, network monitor, and interface
-// monitor. These are required by sing-tun's AutoRoute for loop prevention.
 func (m *Manager) initNetworking(physIface string) error {
 	m.ifaceFinder = control.NewDefaultInterfaceFinder()
 	m.bindControl = control.Append(nil, control.BindToInterface(m.ifaceFinder, physIface, -1))
@@ -243,6 +261,14 @@ func (m *Manager) tunOptions() tun.Options {
 		InterfaceFinder:  m.ifaceFinder,
 		DNSServers:       []netip.Addr{netip.MustParseAddr("127.0.0.1")},
 	}
+	if m.gameBypassMode() {
+		routes := m.discordRoutePrefixes()
+		if len(routes) == 0 {
+			// sing-tun falls back to full 0.0.0.0/0 when Inet4RouteAddress is empty.
+			routes = []netip.Prefix{netip.MustParsePrefix("198.18.0.1/32")}
+		}
+		opts.Inet4RouteAddress = routes
+	}
 	if m.cfg.SplitTunnel {
 		opts.Inet4RouteExcludeAddress = append([]netip.Prefix(nil), splitTunnelRouteExcludes...)
 	}
@@ -256,7 +282,6 @@ func detectPhysicalInterface() string {
 			continue
 		}
 		name := iface.Name
-		// Skip virtual interfaces (TUN, bridge, veth, etc.)
 		for _, prefix := range []string{"utun", "bridge", "veth", "vmnet", "lo"} {
 			if len(name) >= len(prefix) && name[:len(prefix)] == prefix {
 				name = ""
@@ -279,4 +304,3 @@ func detectPhysicalInterface() string {
 	}
 	return ""
 }
-

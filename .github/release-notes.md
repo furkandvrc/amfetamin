@@ -15,6 +15,21 @@
 
 ---
 
+## v3.1.27
+
+### Windows / Engine v0.1.15
+- **Revert direct mode** — TUN stays up for Discord bypass in Turkey
+- **Discord-only TUN when game preset enabled:** only Discord IPs route through TUN; Warframe UDP/TCP (4950/4955, 6695–6699) stays on physical NIC
+- Discord routes added from DoH lookups + live traffic; log shows `mode=tun+game`
+- Requires **engine-v0.1.15**
+
+## v3.1.26
+
+### Windows / Engine v0.1.14
+- **Warframe fix (direct mode):** when a game bypass preset is enabled, the engine **does not start full TUN** — game UDP/TCP (4950/4955, 6695–6699) stays on the physical NIC so Warframe’s firewall/NAT checks pass
+- HTTPS DPI bypass still works via **Npcap SYN-ACK capture + fake ClientHello** on the real interface
+- Requires **engine-v0.1.14** and **Npcap** installed
+
 ## v3.1.25
 
 ### Windows / Engine v0.1.13
