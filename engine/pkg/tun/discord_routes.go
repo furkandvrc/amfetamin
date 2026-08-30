@@ -25,6 +25,22 @@ func (m *Manager) gameBypassMode() bool {
 	return len(m.cfg.BypassRules) > 0
 }
 
+func discordStaticRoutePrefixes() []netip.Prefix {
+	return []netip.Prefix{
+		netip.MustParsePrefix("162.159.128.0/18"), // Cloudflare (Discord)
+		netip.MustParsePrefix("195.175.254.0/24"), // discord.com alt edge
+	}
+}
+
+func appendRoutePrefix(routes []netip.Prefix, prefix netip.Prefix) []netip.Prefix {
+	for _, existing := range routes {
+		if existing == prefix {
+			return routes
+		}
+	}
+	return append(routes, prefix)
+}
+
 func (m *Manager) prefetchDiscordRoutes(ctx context.Context) {
 	for _, domain := range discordPrefetchDomains {
 		select {
@@ -62,7 +78,7 @@ func (m *Manager) AddDiscordRoutes(ips []string) {
 }
 
 func (m *Manager) addDiscordRoutes(addrs []netip.Addr, reason string) {
-	if !m.gameBypassMode() || len(addrs) == 0 {
+	if len(addrs) == 0 {
 		return
 	}
 
@@ -79,6 +95,7 @@ func (m *Manager) addDiscordRoutes(addrs []netip.Addr, reason string) {
 		m.discordRoutes[prefix] = struct{}{}
 		added = append(added, addr)
 	}
+	total := len(m.discordRoutes)
 	m.discordRoutesMu.Unlock()
 
 	if len(added) == 0 {
@@ -88,16 +105,12 @@ func (m *Manager) addDiscordRoutes(addrs []netip.Addr, reason string) {
 	m.logger.WithFields(map[string]interface{}{
 		"ips":    added,
 		"reason": reason,
-		"total":  len(m.discordRoutePrefixes()),
-	}).Info("discord route added")
-
-	if err := m.refreshTunRoutes(); err != nil {
-		m.logger.WithError(err).Warn("failed to update TUN routes")
-	}
+		"total":  total,
+	}).Debug("discord route noted")
 }
 
 func (m *Manager) noteDiscordRoute(addr netip.Addr) {
-	if !m.gameBypassMode() || !addr.IsValid() {
+	if !addr.IsValid() {
 		return
 	}
 	m.addDiscordRoutes([]netip.Addr{addr}, "traffic")
@@ -117,11 +130,7 @@ func (m *Manager) discordRoutePrefixes() []netip.Prefix {
 }
 
 func (m *Manager) refreshTunRoutes() error {
-	if m.tunDevice == nil || !m.gameBypassMode() {
-		return nil
-	}
-	opts := m.tunOptions()
-	return m.tunDevice.UpdateRouteOptions(opts)
+	return nil
 }
 
 func (m *Manager) warmDiscordRoutesBeforeTUN(ctx context.Context) {

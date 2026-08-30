@@ -33,8 +33,8 @@ if (-not (Get-Command Get-AmfetaminUtf8ScriptBlock -ErrorAction SilentlyContinue
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminLogger.ps1'))
 . (Get-AmfetaminUtf8ScriptBlock (Join-Path $PSScriptRoot 'AmfetaminI18n.ps1'))
 
-# Motor indirme (amfetamin engine v0.1.5)
-$Script:EngineVersion = 'engine-v0.1.15'
+# Motor indirme (amfetamin engine v0.1.16)
+$Script:EngineVersion = 'engine-v0.1.16'
 $Script:EngineReleaseBase = 'https://github.com/furkandvrc/amfetamin/releases/download'
 $Script:EngineRemoteAsset = 'amfetamin-engine.exe'
 $Script:EngineChecksumFile = 'checksums.txt'
@@ -57,7 +57,7 @@ function Get-ProjectRoot {
 
 function Get-DefaultConfigValues {
     return @{
-        version            = '3.1.27'
+        version            = '3.1.28'
         dohUpstream        = 'cloudflare'
         fakeTtl              = 8
         autoTuneTtl          = $true
@@ -69,9 +69,9 @@ function Get-DefaultConfigValues {
         engineVerbose        = $false
         projectUrl           = 'https://github.com/furkandvrc/amfetamin'
         logMaxMb             = 5
-        engineVersion        = 'v0.1.15'
+        engineVersion        = 'v0.1.16'
         engineReleaseBase    = 'https://github.com/furkandvrc/amfetamin/releases/download'
-        engineTag            = 'engine-v0.1.15'
+        engineTag            = 'engine-v0.1.16'
         splitTunnel          = $false
         bypassPresets        = @('warframe')
         bypassPortsCustom    = @()
@@ -80,7 +80,7 @@ function Get-DefaultConfigValues {
 
 function Get-BypassPresetCatalog {
     return [ordered]@{
-        warframe = @('udp:4950-4955', 'tcp:4950-4955', 'tcp:6695-6709')
+        warframe = @('udp:4950-4955', 'tcp:4950-4955', 'tcp:6695-6709', 'udp:80', 'udp:443')
         lol      = @('udp:5000-5500', 'udp:8393')
         rust     = @('udp:28015-28050')
         steam    = @('udp:27000-27100', 'tcp:27015', 'tcp:27036', 'udp:27015', 'udp:27031-27036')

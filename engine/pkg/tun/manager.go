@@ -43,6 +43,8 @@ type Manager struct {
 	ifaceMonitor   tun.DefaultInterfaceMonitor
 	discordRoutes  map[netip.Prefix]struct{}
 	discordRoutesMu sync.Mutex
+	gameRouteExcludes   map[netip.Prefix]struct{}
+	gameRouteExcludesMu sync.Mutex
 }
 
 func NewManager(cfg Config, logger *logrus.Logger) *Manager {
@@ -57,10 +59,11 @@ func NewManager(cfg Config, logger *logrus.Logger) *Manager {
 		ports[p] = true
 	}
 	return &Manager{
-		cfg:           cfg,
-		targetPorts:   ports,
-		logger:        logger,
-		discordRoutes: make(map[netip.Prefix]struct{}),
+		cfg:               cfg,
+		targetPorts:       ports,
+		logger:            logger,
+		discordRoutes:     make(map[netip.Prefix]struct{}),
+		gameRouteExcludes: make(map[netip.Prefix]struct{}),
 	}
 }
 
@@ -93,10 +96,6 @@ func (m *Manager) Start(ctx context.Context) error {
 		return err
 	}
 
-	if m.gameBypassMode() {
-		m.warmDiscordRoutesBeforeTUN(ctx)
-	}
-
 	tunOpts := m.tunOptions()
 	tunDevice, err := tun.New(tunOpts)
 	if err != nil {
@@ -108,7 +107,8 @@ func (m *Manager) Start(ctx context.Context) error {
 	tunName, _ := tunDevice.Name()
 	m.logger.WithField("name", tunName).Info("TUN device created")
 
-	stack, err := tun.NewStack("gvisor", tun.StackOptions{
+	stackName := "gvisor"
+	stack, err := tun.NewStack(stackName, tun.StackOptions{
 		Context:                m.ctx,
 		Tun:                    tunDevice,
 		TunOptions:             tunOpts,
@@ -140,7 +140,7 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	mode := "full tunnel"
 	if m.gameBypassMode() {
-		mode = "discord-only TUN (game ports on physical NIC)"
+		mode = "full tunnel + game route exclude"
 	}
 	fields := logrus.Fields{
 		"tun":   tunName,
@@ -148,18 +148,14 @@ func (m *Manager) Start(ctx context.Context) error {
 		"ttl":   m.cfg.FakeTTL,
 		"mode":  mode,
 	}
-	if m.cfg.SplitTunnel {
-		fields["split_tunnel"] = "legacy flag (no routing change)"
+	if m.gameBypassMode() || m.cfg.SplitTunnel {
+		fields["lan_exclude"] = "physical NIC (UPnP/game local traffic)"
 	}
 	if len(m.cfg.BypassRules) > 0 {
 		fields["bypass_rules"] = len(m.cfg.BypassRules)
 		fields["discord_routes"] = len(m.discordRoutePrefixes())
 	}
 	m.logger.WithFields(fields).Info("TUN engine active")
-
-	if m.gameBypassMode() {
-		go m.prefetchDiscordRoutes(m.ctx)
-	}
 
 	return nil
 }
@@ -169,6 +165,7 @@ func (m *Manager) GameBypassMode() bool { return m.gameBypassMode() }
 func (m *Manager) Stop() error {
 	m.logger.Info("stopping TUN engine")
 	unregisterDiscordRouteManager(m)
+	m.cleanupGameRouteExcludes()
 
 	if m.cancel != nil {
 		m.cancel()
@@ -195,7 +192,8 @@ func (m *Manager) Stop() error {
 }
 
 func (m *Manager) dialServer(network, addr string, timeout time.Duration) (net.Conn, error) {
-	return (&net.Dialer{Timeout: timeout, Control: m.bindControl}).DialContext(m.ctx, network, addr)
+	dialer := net.Dialer{Timeout: timeout, Control: m.bindControl}
+	return dialer.DialContext(m.ctx, network, addr)
 }
 
 // DialContext dials via physical NIC, bypassing TUN. Exported for DoH client.
@@ -255,22 +253,16 @@ func (m *Manager) tunOptions() tun.Options {
 	opts := tun.Options{
 		Name:             "utun85",
 		Inet4Address:     []netip.Prefix{netip.MustParsePrefix("10.0.85.1/30")},
+		Inet4Gateway:     netip.MustParseAddr("10.0.85.2"),
 		MTU:              tunMTU,
 		AutoRoute:        true,
+		StrictRoute:      false,
 		InterfaceMonitor: m.ifaceMonitor,
 		InterfaceFinder:  m.ifaceFinder,
 		DNSServers:       []netip.Addr{netip.MustParseAddr("127.0.0.1")},
 	}
-	if m.gameBypassMode() {
-		routes := m.discordRoutePrefixes()
-		if len(routes) == 0 {
-			// sing-tun falls back to full 0.0.0.0/0 when Inet4RouteAddress is empty.
-			routes = []netip.Prefix{netip.MustParsePrefix("198.18.0.1/32")}
-		}
-		opts.Inet4RouteAddress = routes
-	}
-	if m.cfg.SplitTunnel {
-		opts.Inet4RouteExcludeAddress = append([]netip.Prefix(nil), splitTunnelRouteExcludes...)
+	if m.gameBypassMode() || m.cfg.SplitTunnel {
+		opts.Inet4RouteExcludeAddress = append([]netip.Prefix(nil), m.routeExcludePrefixes()...)
 	}
 	return opts
 }
@@ -303,4 +295,32 @@ func detectPhysicalInterface() string {
 		}
 	}
 	return ""
+}
+
+func (m *Manager) localIPv4() net.IP {
+	ifaceName := m.cfg.Interface
+	if ifaceName == "" {
+		ifaceName = detectPhysicalInterface()
+	}
+	if ifaceName == "" {
+		return nil
+	}
+	iface, err := net.InterfaceByName(ifaceName)
+	if err != nil {
+		return nil
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return nil
+	}
+	for _, a := range addrs {
+		ipNet, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		if ipv4 := ipNet.IP.To4(); ipv4 != nil && !ipv4.IsLoopback() && !ipv4.Equal(net.IPv4(10, 0, 85, 1)) {
+			return ipv4
+		}
+	}
+	return nil
 }

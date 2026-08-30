@@ -14,6 +14,7 @@ import (
 
 type pcapRawSocket struct {
 	handle *pcap.Handle
+	device string
 	srcMAC net.HardwareAddr
 	dstMAC net.HardwareAddr
 }
@@ -31,19 +32,82 @@ func New(iface string) (RawSocket, error) {
 
 	srcMAC, dstMAC := discoverMACs()
 
-	return &pcapRawSocket{handle: handle, srcMAC: srcMAC, dstMAC: dstMAC}, nil
+	return &pcapRawSocket{handle: handle, device: pcapDev, srcMAC: srcMAC, dstMAC: dstMAC}, nil
 }
 
 func (s *pcapRawSocket) SendFake(conn ConnInfo, payload []byte, ttl int) error {
 	ipTcp := BuildPacket(conn, payload, ttl)
+	return s.sendIPv4Frame(ipTcp)
+}
 
-	frame := make([]byte, 14+len(ipTcp))
+func (s *pcapRawSocket) SendUDP(conn ConnInfo, payload []byte) error {
+	ipUdp := BuildUDPPacket(conn, payload, 64)
+	return s.sendIPv4Frame(ipUdp)
+}
+
+func (s *pcapRawSocket) MonitorUDPInbound(localIP net.IP, localPort uint16, cb func(srcIP net.IP, srcPort uint16, payload []byte)) (func(), error) {
+	capHandle, err := pcap.OpenLive(s.device, 65535, false, 50*time.Millisecond)
+	if err != nil {
+		return nil, fmt.Errorf("pcap inbound open: %w", err)
+	}
+	filter := fmt.Sprintf("udp and dst host %s and dst port %d", localIP.String(), localPort)
+	if err := capHandle.SetBPFFilter(filter); err != nil {
+		capHandle.Close()
+		return nil, fmt.Errorf("pcap inbound filter: %w", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer capHandle.Close()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			data, ci, err := capHandle.ReadPacketData()
+			if err != nil {
+				continue
+			}
+			_ = ci
+			if len(data) < 42 {
+				continue
+			}
+			// Ethernet II IPv4 UDP frame.
+			if data[12] != 0x08 || data[13] != 0x00 {
+				continue
+			}
+			ip := data[14:]
+			if len(ip) < 20 || (ip[0]>>4) != 4 {
+				continue
+			}
+			ihl := int(ip[0]&0x0f) * 4
+			if len(ip) < ihl+8 || ip[9] != 17 {
+				continue
+			}
+			srcIP := net.IP(append([]byte(nil), ip[12:16]...))
+			udp := ip[ihl:]
+			srcPort := uint16(udp[0])<<8 | uint16(udp[1])
+			udpLen := int(udp[4])<<8 | int(udp[5])
+			if udpLen < 8 || len(udp) < udpLen {
+				continue
+			}
+			payload := append([]byte(nil), udp[8:udpLen]...)
+			cb(srcIP, srcPort, payload)
+		}
+	}()
+
+	stop := func() { close(done) }
+	return stop, nil
+}
+
+func (s *pcapRawSocket) sendIPv4Frame(ipPayload []byte) error {
+	frame := make([]byte, 14+len(ipPayload))
 	copy(frame[0:6], s.dstMAC)
 	copy(frame[6:12], s.srcMAC)
 	frame[12] = 0x08
 	frame[13] = 0x00
-	copy(frame[14:], ipTcp)
-
+	copy(frame[14:], ipPayload)
 	return s.handle.WritePacketData(frame)
 }
 

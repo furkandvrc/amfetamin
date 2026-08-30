@@ -2,6 +2,7 @@ package rawsock
 
 import (
 	"fmt"
+	"net"
 	"syscall"
 )
 
@@ -30,6 +31,19 @@ func (s *platformRawSocket) SendFake(conn ConnInfo, payload []byte, ttl int) err
 	copy(addr.Addr[:], conn.DstIP.To4())
 
 	return syscall.Sendto(s.fd, pkt, 0, &addr)
+}
+
+func (s *platformRawSocket) SendUDP(conn ConnInfo, payload []byte) error {
+	pkt := BuildUDPPacket(conn, payload, 64)
+
+	addr := syscall.SockaddrInet4{Port: 0}
+	copy(addr.Addr[:], conn.DstIP.To4())
+
+	return syscall.Sendto(s.fd, pkt, 0, &addr)
+}
+
+func (s *platformRawSocket) MonitorUDPInbound(_ net.IP, _ uint16, _ func(net.IP, uint16, []byte)) (func(), error) {
+	return func() {}, nil
 }
 
 func (s *platformRawSocket) Close() error {

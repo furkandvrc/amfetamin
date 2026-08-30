@@ -16,11 +16,15 @@ type ConnInfo struct {
 	Ack     uint32 // TCP ACK number (rcv_nxt from the connection)
 }
 
-// RawSocket sends crafted TCP packets with custom TTL.
+// RawSocket sends crafted packets with custom TTL.
 type RawSocket interface {
 	// SendFake sends a fake TCP data packet that DPI will process
 	// but the destination server will never receive (low TTL).
 	SendFake(conn ConnInfo, payload []byte, ttl int) error
+	// SendUDP sends a UDP datagram on the physical interface (bypasses TUN relay bind).
+	SendUDP(conn ConnInfo, payload []byte) error
+	// MonitorUDPInbound captures inbound UDP to localPort on the physical NIC.
+	MonitorUDPInbound(localIP net.IP, localPort uint16, cb func(srcIP net.IP, srcPort uint16, payload []byte)) (stop func(), err error)
 	Close() error
 }
 
@@ -52,14 +56,47 @@ func BuildPacket(conn ConnInfo, payload []byte, ttl int) []byte {
 	return pkt
 }
 
+// BuildUDPPacket constructs a complete IP+UDP packet.
+func BuildUDPPacket(conn ConnInfo, payload []byte, ttl int) []byte {
+	udpHdr := make([]byte, 8)
+	binary.BigEndian.PutUint16(udpHdr[0:2], conn.SrcPort)
+	binary.BigEndian.PutUint16(udpHdr[2:4], conn.DstPort)
+	udpLen := uint16(8 + len(payload))
+	binary.BigEndian.PutUint16(udpHdr[4:6], udpLen)
+
+	ipHdr := buildIPHeaderProto(conn, ttl, int(udpLen), syscall.IPPROTO_UDP)
+	pkt := make([]byte, 0, len(ipHdr)+len(udpHdr)+len(payload))
+	pkt = append(pkt, ipHdr...)
+	pkt = append(pkt, udpHdr...)
+	pkt = append(pkt, payload...)
+
+	checksumData := make([]byte, 0, 12+len(udpHdr)+len(payload))
+	checksumData = append(checksumData, conn.SrcIP.To4()...)
+	checksumData = append(checksumData, conn.DstIP.To4()...)
+	checksumData = append(checksumData, 0, syscall.IPPROTO_UDP)
+	udpLenBuf := make([]byte, 2)
+	binary.BigEndian.PutUint16(udpLenBuf, udpLen)
+	checksumData = append(checksumData, udpLenBuf...)
+	checksumData = append(checksumData, pkt[len(ipHdr):]...)
+	cs := Checksum(checksumData)
+	pkt[len(ipHdr)+6] = byte(cs >> 8)
+	pkt[len(ipHdr)+7] = byte(cs)
+
+	return pkt
+}
+
 func buildIPHeader(conn ConnInfo, ttl int, payloadLen int) []byte {
+	return buildIPHeaderProto(conn, ttl, payloadLen, syscall.IPPROTO_TCP)
+}
+
+func buildIPHeaderProto(conn ConnInfo, ttl int, payloadLen int, proto int) []byte {
 	totalLen := 20 + payloadLen
 	hdr := make([]byte, 20)
 	hdr[0] = 0x45                                 // Version=4, IHL=5
 	ipHeaderPutUint16(hdr[2:4], uint16(totalLen)) // Total length (byte order is platform-dependent)
 	ipHeaderPutUint16(hdr[4:6], 0x1234)           // ID
 	hdr[8] = byte(ttl)                            // TTL
-	hdr[9] = syscall.IPPROTO_TCP                  // Protocol
+	hdr[9] = byte(proto)                          // Protocol
 	copy(hdr[12:16], conn.SrcIP.To4())
 	copy(hdr[16:20], conn.DstIP.To4())
 	// IP header checksum — required for pcap_sendpacket (kernel won't fill it).

@@ -63,8 +63,15 @@ func (h *handler) NewConnectionEx(
 	}
 
 	if bypass, reason := tunnelBypassReason(N.NetworkTCP, source, destination); bypass {
+		if ok, label := gameSourcePortBypass(N.NetworkTCP, source); ok && destination.Addr.IsGlobalUnicast() {
+			h.mgr.excludeGameDestFromTUN(destination.Addr, label)
+			return
+		}
 		h.logBypassRelay(N.NetworkTCP, source, destination, reason)
 		serverConn, err := h.dialBypass(N.NetworkTCP, source, destination)
+		if err != nil && source.Port > 0 {
+			serverConn, err = h.dialBypassWithoutLocalPort(N.NetworkTCP, destination)
+		}
 		if err != nil {
 			h.mgr.logger.WithError(err).WithField("dst", destination.String()).Debug("bypass dial failed")
 			return
@@ -164,9 +171,20 @@ func (h *handler) NewPacketConnectionEx(
 	defer conn.Close()
 
 	if bypass, reason := tunnelBypassReason(N.NetworkUDP, source, destination); bypass {
+		if ok, label := gameSourcePortBypass(N.NetworkUDP, source); ok && destination.Addr.IsGlobalUnicast() {
+			h.mgr.excludeGameDestFromTUN(destination.Addr, label)
+			return
+		}
 		h.logBypassRelay(N.NetworkUDP, source, destination, reason)
 		realConn, err := h.dialBypass(N.NetworkUDP, source, destination)
 		if err != nil {
+			if source.Port > 0 {
+				h.mgr.logger.WithError(err).WithFields(logrus.Fields{
+					"src": source.String(), "dst": destination.String(),
+				}).Info("bypass dial failed — using pcap relay")
+				h.relayUDPPcap(conn, source, destination)
+				return
+			}
 			h.mgr.logger.WithError(err).WithField("dst", destination.String()).Debug("bypass dial failed")
 			return
 		}
@@ -209,6 +227,61 @@ func (h *handler) dialBypass(network string, source, destination M.Socksaddr) (n
 		}
 	}
 	return dialer.Dial(network, addr)
+}
+
+func (h *handler) dialBypassWithoutLocalPort(network string, destination M.Socksaddr) (net.Conn, error) {
+	addr := net.JoinHostPort(destination.AddrString(), fmt.Sprint(destination.Port))
+	return (&net.Dialer{
+		Timeout: 5 * time.Second,
+		Control: h.mgr.bindControl,
+	}).Dial(network, addr)
+}
+
+func (h *handler) relayUDPPcap(tunConn N.PacketConn, source, destination M.Socksaddr) {
+	localIP := h.mgr.localIPv4()
+	if localIP == nil {
+		return
+	}
+	h.mgr.logger.WithFields(logrus.Fields{
+		"src": source.String(), "dst": destination.String(),
+	}).Info("UDP pcap relay active")
+
+	stop, err := h.mgr.rawSock.MonitorUDPInbound(localIP, source.Port, func(srcIP net.IP, srcPort uint16, payload []byte) {
+		addr, ok := netip.AddrFromSlice(srcIP.To4())
+		if !ok {
+			return
+		}
+		remote := M.SocksaddrFrom(addr, srcPort)
+		if writeErr := tunConn.WritePacket(buf.As(payload), remote); writeErr != nil {
+			h.mgr.logger.WithError(writeErr).Debug("pcap UDP write to TUN failed")
+		}
+	})
+	if err != nil {
+		h.mgr.logger.WithError(err).Warn("pcap UDP inbound monitor failed")
+	} else if stop != nil {
+		defer stop()
+	}
+
+	dstIP := destination.Addr.AsSlice()
+	for {
+		b := buf.NewSize(65535)
+		tunConn.SetReadDeadline(time.Now().Add(30 * time.Second))
+		_, err := tunConn.ReadPacket(b)
+		if err != nil {
+			b.Release()
+			break
+		}
+		conn := rawsock.ConnInfo{
+			SrcIP:   localIP,
+			DstIP:   dstIP,
+			SrcPort: source.Port,
+			DstPort: destination.Port,
+		}
+		if err := h.mgr.rawSock.SendUDP(conn, b.Bytes()); err != nil {
+			h.mgr.logger.WithError(err).Debug("pcap UDP inject failed")
+		}
+		b.Release()
+	}
 }
 
 func (h *handler) relayUDP(tunConn N.PacketConn, realConn net.Conn, destination M.Socksaddr) {

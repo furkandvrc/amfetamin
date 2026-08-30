@@ -15,6 +15,15 @@
 
 ---
 
+## v3.1.28
+
+### Windows / Engine v0.1.16
+- **Fix: Discord + Warframe together** — full TUN for Discord DPI bypass; Warframe UDP/TCP game ports bypass TUN via physical routes
+- **Warframe:** UDP 4950/4955 pcap relay + dynamic `route add` for game server IPs; LAN/UPnP stays on physical NIC
+- **Warframe:** TCP 6695–6699 bypass when source port matches game preset; Windows Firewall rules documented in install scripts
+- **Fix:** Discord route refresh no longer breaks full TUN (`UpdateRouteOptions` disabled for dynamic Discord /32)
+- Requires **engine-v0.1.16** and **Npcap** on Windows
+
 ## v3.1.27
 
 ### Windows / Engine v0.1.15
