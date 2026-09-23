@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	gecitdns "github.com/boratanrikulu/gecit/pkg/dns"
@@ -27,10 +28,13 @@ import (
 const (
 	dialTimeout      = 5 * time.Second
 	helloReadTimeout = 3 * time.Second
-	tcpIdleTimeout   = 5 * time.Minute
+	tcpIdleTimeout   = 2 * time.Hour
 	udpIdleTimeout   = 60 * time.Second
 	fakeCount        = 3
 )
+
+// pipeIdleCheck is how often a quiet direction re-checks the connection-wide idle clock.
+var pipeIdleCheck = time.Minute
 
 type handler struct {
 	mgr *Manager
@@ -333,12 +337,23 @@ func isTimeout(err error) bool {
 }
 
 // pipe copies both directions, propagating half-close so request/response
-// protocols that shut down their write side keep working. A direction that
-// sees no data for tcpIdleTimeout ends the connection.
+// protocols that shut down their write side keep working.
+//
+// Idleness is judged for the connection as a whole: push channels (WhatsApp,
+// Discord gateway, notifications) send mostly one way for long stretches, and
+// cutting them when one direction goes quiet delays messages until the app
+// notices and reconnects. Dead servers are still detected by TCP keepalive on
+// the outbound socket.
 func pipe(a, b net.Conn) {
-	var wg sync.WaitGroup
+	var (
+		wg       sync.WaitGroup
+		lastSeen atomic.Int64
+		closed   atomic.Bool
+	)
+	lastSeen.Store(time.Now().UnixNano())
 	wg.Add(2)
 	teardown := func() {
+		closed.Store(true)
 		now := time.Now()
 		a.SetDeadline(now)
 		b.SetDeadline(now)
@@ -348,14 +363,19 @@ func pipe(a, b net.Conn) {
 		buffer := buf.Get(32 * 1024)
 		defer buf.Put(buffer)
 		for {
-			src.SetReadDeadline(time.Now().Add(tcpIdleTimeout))
+			src.SetReadDeadline(time.Now().Add(pipeIdleCheck))
 			n, err := src.Read(buffer)
 			if n > 0 {
+				lastSeen.Store(time.Now().UnixNano())
 				if _, wErr := dst.Write(buffer[:n]); wErr != nil {
 					break
 				}
 			}
 			if err != nil {
+				if isTimeout(err) && !closed.Load() &&
+					time.Since(time.Unix(0, lastSeen.Load())) < tcpIdleTimeout {
+					continue // this direction is quiet, the connection is not
+				}
 				if err == io.EOF {
 					if cw, ok := dst.(interface{ CloseWrite() error }); ok && cw.CloseWrite() == nil {
 						return

@@ -1,5 +1,10 @@
 # Changelog
 
+## v4.0.1
+
+- **WhatsApp / bildirimler:** Uzun süre açık kalan bağlantılar (WhatsApp, Discord gateway, bildirimler), bir yön 5 dakika sessiz kalınca kopuyordu; mesajlar gecikiyor ya da gelmiyordu. Bağlantılar artık yalnızca tamamen boşta kaldığında (2 saat) kapanıyor.
+- Motor log satırındaki bozuk karakter düzeltildi.
+
 ## v4.0.0
 
 Tamamen elden geçirilmiş sürüm. / Complete overhaul.

@@ -114,7 +114,7 @@ func runEngine(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("start: %w", err)
 	}
 
-	logger.WithField("mode", eng.Mode()).Info(brand.ProductName + " engine running — press Ctrl+C to stop")
+	logger.WithField("mode", eng.Mode()).Info(brand.ProductName + " engine running (Ctrl+C to stop)")
 
 	select {
 	case <-sigCh:
