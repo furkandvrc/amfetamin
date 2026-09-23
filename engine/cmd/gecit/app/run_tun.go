@@ -28,41 +28,36 @@ func newPlatformEngine(cfg engine.Config, logger *logrus.Logger) (engine.Engine,
 		Ports:       cfg.Ports,
 		FakeTTL:     cfg.FakeTTL,
 		Interface:   cfg.Interface,
-		SplitTunnel: cfg.SplitTunnel,
+		LANExclude:  cfg.SplitTunnel,
 		BypassRules: cfg.BypassRules,
 	}, logger)
 
-	return &tunEngine{
-		mgr:        mgr,
-		dns:        gecitdns.NewServer(upstream, logger, mgr.DialContext),
-		dohEnabled: cfg.DoHEnabled,
-		logger:     logger,
-	}, nil
+	e := &tunEngine{mgr: mgr, dohEnabled: cfg.DoHEnabled, logger: logger}
+	if cfg.DoHEnabled {
+		e.dns = gecitdns.NewServer(upstream, logger, mgr.DialContext, gecitdns.Options{FilterAAAA: cfg.FilterAAAA})
+	}
+	return e, nil
 }
 
 func (e *tunEngine) Start(ctx context.Context) error {
+	// Resolve the uplink while the routing table is still untouched.
+	phys, err := e.mgr.Physical()
+	if err != nil {
+		return err
+	}
+
 	if e.dohEnabled {
 		stopSystemDNS()
-
 		if err := e.dns.Start(); err != nil {
 			resumeSystemDNS()
 			return err
 		}
-		e.dns.SetResolveHook(func(domain string, ips []string) {
-			if gecittun.IsDiscordHost(domain) {
-				e.mgr.AddDiscordRoutes(ips)
-			}
-		})
-		if err := gecitdns.SetSystemDNS(); err != nil {
+		if err := gecitdns.SetSystemDNS(dnsTarget(phys.Name)); err != nil {
 			e.dns.Stop()
 			resumeSystemDNS()
 			return err
 		}
-		if svc := dnsServiceInfo(); svc != "" {
-			e.logger.WithField("service", svc).Info("encrypted DNS active")
-		} else {
-			e.logger.Info("encrypted DNS active")
-		}
+		e.logger.WithField("service", dnsTarget(phys.Name)).Info("encrypted DNS active")
 	}
 
 	if err := e.mgr.Start(ctx); err != nil {
@@ -73,16 +68,18 @@ func (e *tunEngine) Start(ctx context.Context) error {
 		}
 		return err
 	}
-
 	return nil
 }
 
 func (e *tunEngine) Stop() error {
 	e.mgr.Stop()
 	if e.dohEnabled {
-		gecitdns.RestoreSystemDNS()
+		if err := gecitdns.RestoreSystemDNS(); err != nil {
+			e.logger.WithError(err).Warn("failed to restore system DNS")
+		}
 		e.dns.Stop()
 		resumeSystemDNS()
+		e.logger.Info("system DNS restored")
 	}
 	return nil
 }

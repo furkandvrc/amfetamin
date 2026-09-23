@@ -44,7 +44,7 @@ case "$cmd" in
         ;;
     start)
         require_root
-        start_engine_hidden 0
+        start_engine 0
         ;;
     stop)
         require_root
@@ -63,7 +63,7 @@ case "$cmd" in
         ;;
     test)
         for url in "https://discord.com" "https://www.google.com/generate_204"; do
-            if test_bypass_reachable "$url" 15; then
+            if probe_url "$url" 10; then
                 echo "OK  $url"
             else
                 echo "FAIL $url"

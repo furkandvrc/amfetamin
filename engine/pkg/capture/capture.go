@@ -4,19 +4,15 @@ import (
 	"github.com/boratanrikulu/gecit/pkg/rawsock"
 )
 
-// ConnectionEvent is emitted when a new TLS connection is detected.
+// ConnectionEvent is emitted when a SYN-ACK for a proxied connection is seen.
 type ConnectionEvent = rawsock.ConnInfo
 
-// Callback is called for each new TLS connection detected.
+// Callback is called for each captured SYN-ACK.
 type Callback func(evt ConnectionEvent)
 
-// Detector detects new TLS connections and emits events.
-// Linux uses eBPF sock_ops (not this interface).
-// macOS uses BPF device capture.
-// Windows will use WinDivert.
+// Detector reports new TLS connections. Linux uses eBPF sock_ops instead;
+// macOS (libpcap) and Windows (Npcap) capture SYN-ACKs on the physical NIC.
 type Detector interface {
-	// Start begins capturing and calls cb for each new connection.
 	Start(cb Callback) error
-	// Stop stops capturing.
 	Stop() error
 }

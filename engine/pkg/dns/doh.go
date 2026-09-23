@@ -46,7 +46,17 @@ type DoHClient struct {
 }
 
 func NewDoHClient(upstream string, name string, dial DialFunc) *DoHClient {
-	transport := &http.Transport{Proxy: nil}
+	// Keep connections warm: a fresh TLS handshake per query would add a
+	// full round trip to every lookup. HTTP/2 must be forced because a custom
+	// DialContext/TLS config disables it otherwise.
+	transport := &http.Transport{
+		Proxy:               nil,
+		ForceAttemptHTTP2:   true,
+		MaxIdleConns:        8,
+		MaxIdleConnsPerHost: 4,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 5 * time.Second,
+	}
 	if dial != nil {
 		transport.DialContext = dial
 	}
@@ -66,7 +76,7 @@ func NewDoHClient(upstream string, name string, dial DialFunc) *DoHClient {
 						}
 						parsed.Host = net.JoinHostPort(ip4.String(), port)
 						upstream = parsed.String()
-						transport.TLSClientConfig = &tls.Config{ServerName: host}
+						transport.TLSClientConfig = &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
 						break
 					}
 				}
@@ -138,11 +148,17 @@ func NewResolver(upstreams string, dial DialFunc) Resolver {
 	var clients []Resolver
 	for _, u := range strings.Split(upstreams, ",") {
 		u = strings.TrimSpace(u)
-		if p, ok := Presets[u]; ok {
+		if u == "" {
+			continue
+		}
+		if p, ok := Presets[strings.ToLower(u)]; ok {
 			clients = append(clients, NewDoHClient(p.URL, u, dial))
 		} else {
 			clients = append(clients, NewDoHClient(u, u, dial))
 		}
+	}
+	if len(clients) == 0 {
+		clients = append(clients, NewDoHClient(Presets["cloudflare"].URL, "cloudflare", dial))
 	}
 	if len(clients) == 1 {
 		return clients[0]

@@ -1,5 +1,9 @@
 name: Release
 
+# One tag builds everything: engine (Windows + macOS), the Windows app and
+# the macOS package. The engine is bundled in both zips and also attached on
+# its own (with checksums) for the app's download fallback.
+
 on:
   push:
     tags:
@@ -9,49 +13,86 @@ permissions:
   contents: write
 
 jobs:
-  build-macos:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match VERSION
+        run: |
+          want="v$(tr -d '[:space:]' < VERSION)"
+          if [ "$want" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match VERSION ($want)"
+            exit 1
+          fi
+
+  windows:
+    needs: check-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build and pack
+        run: bash scripts/pack-windows.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/amfetamin-windows.zip
+            dist/engine/amfetamin-engine.exe
+
+  macos:
+    needs: check-version
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build and pack macOS
-        run: bash scripts/pack-macos.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/setup-go@v5
         with:
-          name: amfetamin-macos
-          path: dist/amfetamin-macos.zip
-
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build and pack Windows
-        shell: pwsh
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - name: Build and pack
         run: |
-          Set-ExecutionPolicy -Scope Process Bypass
-          ./scripts/pack-windows.ps1
+          bash scripts/build-engine.sh darwin
+          bash scripts/pack-macos.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: amfetamin-windows
-          path: dist/amfetamin-windows.zip
+          name: macos
+          path: |
+            dist/amfetamin-macos.zip
+            dist/engine/amfetamin-engine-darwin-*
 
   publish:
-    needs: [build-macos, build-windows]
+    needs: [windows, macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: Create GitHub Release
+          merge-multiple: true
+      - name: Collect assets
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.zip' -o -name 'amfetamin-engine*' \) -exec cp {} release/ \;
+          # Pre-4.0 launchers look for "amfetamin.zip" in their update check.
+          cp release/amfetamin-windows.zip release/amfetamin.zip
+          cd release
+          # The in-app updater verifies the zip against this file.
+          sha256sum amfetamin-engine* amfetamin-*.zip > checksums.txt
+          ls -l
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
           NOTES="$(mktemp)"
-          bash scripts/extract-release-notes.sh "$TAG" > "$NOTES"
-          gh release create "$TAG" \
-            --title "amfetamin ${TAG#v}" \
+          bash scripts/extract-release-notes.sh "$GITHUB_REF_NAME" > "$NOTES"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "amfetamin ${GITHUB_REF_NAME#v}" \
             --notes-file "$NOTES" \
             --latest \
-            "artifacts/amfetamin-macos/amfetamin-macos.zip" \
-            "artifacts/amfetamin-windows/amfetamin-windows.zip"
+            release/*

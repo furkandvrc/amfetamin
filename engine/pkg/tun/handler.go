@@ -4,21 +4,32 @@ package tun
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"io"
 	"net"
 	"net/netip"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
 	gecitdns "github.com/boratanrikulu/gecit/pkg/dns"
 	"github.com/boratanrikulu/gecit/pkg/fake"
-	"github.com/boratanrikulu/gecit/pkg/seqtrack"
 	"github.com/boratanrikulu/gecit/pkg/rawsock"
+	"github.com/boratanrikulu/gecit/pkg/seqtrack"
 	singtun "github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common/buf"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	dialTimeout      = 5 * time.Second
+	helloReadTimeout = 3 * time.Second
+	tcpIdleTimeout   = 5 * time.Minute
+	udpIdleTimeout   = 60 * time.Second
+	fakeCount        = 3
 )
 
 type handler struct {
@@ -29,328 +40,332 @@ func (h *handler) PrepareConnection(
 	network string, source M.Socksaddr, destination M.Socksaddr,
 	_ singtun.DirectRouteContext, _ time.Duration,
 ) (singtun.DirectRouteDestination, error) {
-	if bypass, reason := tunnelBypassReason(network, source, destination); bypass {
-		h.mgr.logger.WithFields(logrus.Fields{
-			"proto":  network,
-			"src":    source.String(),
-			"dst":    destination.String(),
-			"action": "bypass",
-			"reason": reason,
-		}).Debug("tunnel bypass")
-	}
-	// gvisor stack treats any PrepareConnection error as drop/reject (ErrBypass only
-	// works on Linux nfqueue). Bypass traffic is relayed in New*ConnectionEx instead.
+	// The gvisor stack treats any error here as reject; bypassing happens in
+	// New*ConnectionEx instead.
 	return nil, nil
 }
 
-func (h *handler) NewConnectionEx(
-	ctx context.Context,
-	conn net.Conn,
-	source M.Socksaddr,
-	destination M.Socksaddr,
-	onClose N.CloseHandlerFunc,
-) {
+func (h *handler) NewConnectionEx(ctx context.Context, conn net.Conn, source, destination M.Socksaddr, onClose N.CloseHandlerFunc) {
 	if onClose != nil {
 		defer onClose(nil)
 	}
-	if conn == nil || !destination.IsValid() {
+	if conn == nil {
 		return
 	}
 	defer conn.Close()
-
-	if isDiscordDestination(destination) {
-		noteDiscordIP(destination.Addr)
+	if !destination.IsValid() {
+		return
 	}
 
-	if bypass, reason := tunnelBypassReason(N.NetworkTCP, source, destination); bypass {
-		if ok, label := gameSourcePortBypass(N.NetworkTCP, source); ok && destination.Addr.IsGlobalUnicast() {
-			h.mgr.excludeGameDestFromTUN(destination.Addr, label)
+	decision, reason := classifyFlow(N.NetworkTCP, source, destination)
+	switch decision {
+	case routeAround:
+		if h.mgr.routeAround(destination.Addr, reason) {
+			// Drop this attempt; the client's retry leaves via the physical NIC.
 			return
 		}
-		h.logBypassRelay(N.NetworkTCP, source, destination, reason)
-		serverConn, err := h.dialBypass(N.NetworkTCP, source, destination)
-		if err != nil && source.Port > 0 {
-			serverConn, err = h.dialBypassWithoutLocalPort(N.NetworkTCP, destination)
-		}
+		fallthrough
+	case relayDirect:
+		h.logFlow(N.NetworkTCP, source, destination, reason)
+		server, err := h.dialBypass(N.NetworkTCP, source, destination)
 		if err != nil {
 			h.mgr.logger.WithError(err).WithField("dst", destination.String()).Debug("bypass dial failed")
 			return
 		}
-		defer serverConn.Close()
-		pipe(conn, serverConn)
+		defer server.Close()
+		pipe(conn, server)
 		return
 	}
 
-	dstPort := destination.Port
-	addr := net.JoinHostPort(destination.AddrString(), fmt.Sprint(dstPort))
-	dst := resolveDst(addr, destination.AddrString(), dstPort)
-
-	serverConn, err := h.mgr.dialServer("tcp", addr, 5*time.Second)
+	addr := destination.String()
+	dialStart := time.Now()
+	server, err := h.mgr.dialServer(N.NetworkTCP, addr, dialTimeout)
 	if err != nil {
-		h.mgr.logger.WithError(err).WithField("dst", dst).Debug("dial failed")
+		h.mgr.logger.WithError(err).WithField("dst", h.describe(destination)).Debug("dial failed")
 		return
 	}
-	defer serverConn.Close()
+	defer server.Close()
 
-	if !h.mgr.targetPorts[dstPort] {
-		pipe(conn, serverConn)
+	if !h.mgr.targetPorts[destination.Port] {
+		pipe(conn, server)
 		return
 	}
-
-	h.injectAndForward(conn, serverConn, dst)
+	h.injectAndForward(conn, server, destination, dialStart)
 }
 
-func (h *handler) injectAndForward(appConn, serverConn net.Conn, dst string) {
-	appConn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	clientHello := make([]byte, 16384)
-	n, err := appConn.Read(clientHello)
-	if err != nil {
-		return
-	}
-	clientHello = clientHello[:n]
-	appConn.SetReadDeadline(time.Time{})
+// injectAndForward sends fake ClientHellos with a low TTL (they reach the DPI
+// box but expire before the server), then forwards the real handshake.
+func (h *handler) injectAndForward(app, server net.Conn, destination M.Socksaddr, dialStart time.Time) {
+	// Seq/ack lookup runs while we wait for the app's first bytes.
+	type seqAck struct{ seq, ack uint32 }
+	seqCh := make(chan seqAck, 1)
+	go func() {
+		s, a := seqtrack.GetSeqAck(server, dialStart)
+		seqCh <- seqAck{s, a}
+	}()
 
-	// Extract real destination from SNI — more reliable than DNS cache.
-	if sni := fake.ParseSNI(clientHello); sni != "" {
-		dst = fmt.Sprintf("%s:%d", sni, serverConn.RemoteAddr().(*net.TCPAddr).Port)
-	}
-
-	seq, ack := seqtrack.GetSeqAck(serverConn)
-
-	serverTCP, ok1 := serverConn.LocalAddr().(*net.TCPAddr)
-	remoteTCP, ok2 := serverConn.RemoteAddr().(*net.TCPAddr)
-	if !ok1 || !ok2 {
-		return
-	}
-
-	if sni := fake.ParseSNI(clientHello); sni != "" && isDiscordHost(sni) {
-		if addr, ok := netip.AddrFromSlice(remoteTCP.IP); ok {
-			noteDiscordIP(addr)
+	first := buf.Get(16384)
+	defer buf.Put(first)
+	app.SetReadDeadline(time.Now().Add(helloReadTimeout))
+	n, err := app.Read(first)
+	app.SetReadDeadline(time.Time{})
+	if n == 0 {
+		if err != nil && isTimeout(err) {
+			// Server-speaks-first or idle preconnect: nothing to disguise.
+			pipe(app, server)
 		}
-	}
-
-	connInfo := rawsock.ConnInfo{
-		SrcIP: serverTCP.IP, DstIP: remoteTCP.IP,
-		SrcPort: uint16(serverTCP.Port), DstPort: uint16(remoteTCP.Port),
-		Seq: seq, Ack: ack,
-	}
-
-	for i := 0; i < 3; i++ {
-		if err := h.mgr.rawSock.SendFake(connInfo, fake.TLSClientHello, h.mgr.cfg.FakeTTL); err != nil {
-			h.mgr.logger.WithError(err).Warn("SendFake failed")
-			break
-		}
-	}
-	h.mgr.logger.WithFields(logrus.Fields{
-		"dst": dst, "seq": seq, "ack": ack, "ttl": h.mgr.cfg.FakeTTL,
-	}).Info("fake ClientHellos injected")
-
-	// Let fakes reach DPI before the real ClientHello.
-	time.Sleep(2 * time.Millisecond)
-
-	if _, err := serverConn.Write(clientHello); err != nil {
 		return
 	}
+	hello := first[:n]
 
-	pipe(appConn, serverConn)
+	local, ok1 := server.LocalAddr().(*net.TCPAddr)
+	remote, ok2 := server.RemoteAddr().(*net.TCPAddr)
+	sa := <-seqCh
+	if ok1 && ok2 {
+		sni := fake.ParseSNI(hello)
+		if sni != "" && isDiscordHost(sni) {
+			if a, ok := netip.AddrFromSlice(remote.IP); ok {
+				noteDiscordIP(a)
+			}
+		}
+		info := rawsock.ConnInfo{
+			SrcIP: local.IP, DstIP: remote.IP,
+			SrcPort: uint16(local.Port), DstPort: uint16(remote.Port),
+			Seq: sa.seq, Ack: sa.ack,
+		}
+		var sendErr error
+		for i := 0; i < fakeCount && sendErr == nil; i++ {
+			sendErr = h.mgr.rawSock.SendFake(info, fake.TLSClientHello, h.mgr.cfg.FakeTTL)
+		}
+		entry := h.mgr.logger.WithFields(logrus.Fields{
+			"dst": h.describeSNI(destination, sni), "seq": sa.seq, "ttl": h.mgr.cfg.FakeTTL,
+		})
+		if sendErr != nil {
+			entry.WithError(sendErr).Warn("fake injection failed")
+		} else {
+			entry.Debug("fake ClientHellos injected")
+		}
+		// Let the fakes reach the DPI box before the real ClientHello.
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	if _, err := server.Write(hello); err != nil {
+		return
+	}
+	pipe(app, server)
 }
 
-func (h *handler) NewPacketConnectionEx(
-	ctx context.Context,
-	conn N.PacketConn,
-	source M.Socksaddr,
-	destination M.Socksaddr,
-	onClose N.CloseHandlerFunc,
-) {
+func (h *handler) NewPacketConnectionEx(ctx context.Context, conn N.PacketConn, source, destination M.Socksaddr, onClose N.CloseHandlerFunc) {
 	if onClose != nil {
 		defer onClose(nil)
 	}
-	if conn == nil || !destination.IsValid() {
+	if conn == nil {
 		return
 	}
 	defer conn.Close()
+	if !destination.IsValid() {
+		return
+	}
 
-	if bypass, reason := tunnelBypassReason(N.NetworkUDP, source, destination); bypass {
-		if ok, label := gameSourcePortBypass(N.NetworkUDP, source); ok && destination.Addr.IsGlobalUnicast() {
-			h.mgr.excludeGameDestFromTUN(destination.Addr, label)
+	decision, reason := classifyFlow(N.NetworkUDP, source, destination)
+	switch decision {
+	case routeAround:
+		if h.mgr.routeAround(destination.Addr, reason) {
 			return
 		}
-		h.logBypassRelay(N.NetworkUDP, source, destination, reason)
-		realConn, err := h.dialBypass(N.NetworkUDP, source, destination)
+		fallthrough
+	case relayDirect:
+		h.logFlow(N.NetworkUDP, source, destination, reason)
+		real, err := h.dialBypass(N.NetworkUDP, source, destination)
 		if err != nil {
 			if source.Port > 0 {
-				h.mgr.logger.WithError(err).WithFields(logrus.Fields{
-					"src": source.String(), "dst": destination.String(),
-				}).Info("bypass dial failed — using pcap relay")
+				h.mgr.logger.WithError(err).WithField("dst", destination.String()).Debug("bypass dial failed — using pcap relay")
 				h.relayUDPPcap(conn, source, destination)
-				return
 			}
-			h.mgr.logger.WithError(err).WithField("dst", destination.String()).Debug("bypass dial failed")
 			return
 		}
-		defer realConn.Close()
-		h.relayUDP(conn, realConn, destination)
+		defer real.Close()
+		relayUDP(conn, real, destination)
 		return
 	}
 
-	addr := net.JoinHostPort(destination.AddrString(), fmt.Sprint(destination.Port))
-	realConn, err := h.mgr.dialServer("udp", addr, 5*time.Second)
+	real, err := h.mgr.dialServer(N.NetworkUDP, destination.String(), dialTimeout)
 	if err != nil {
 		return
 	}
-	defer realConn.Close()
-	h.relayUDP(conn, realConn, destination)
+	defer real.Close()
+	relayUDP(conn, real, destination)
 }
 
-func (h *handler) logBypassRelay(network string, source, destination M.Socksaddr, reason string) {
+func (h *handler) logFlow(network string, source, destination M.Socksaddr, reason string) {
+	if !h.mgr.logger.IsLevelEnabled(logrus.DebugLevel) {
+		return
+	}
 	h.mgr.logger.WithFields(logrus.Fields{
-		"proto":  network,
-		"src":    source.String(),
-		"dst":    destination.String(),
-		"action": "bypass relay",
-		"reason": reason,
+		"proto": network, "src": source.String(), "dst": destination.String(), "reason": reason,
 	}).Debug("tunnel bypass relay")
 }
 
+// dialBypass dials through the physical NIC, reusing the app's source port
+// when possible (some game servers expect it), else any port.
 func (h *handler) dialBypass(network string, source, destination M.Socksaddr) (net.Conn, error) {
-	addr := net.JoinHostPort(destination.AddrString(), fmt.Sprint(destination.Port))
-	dialer := net.Dialer{
-		Timeout: 5 * time.Second,
-		Control: h.mgr.bindControl,
-	}
+	dialer := net.Dialer{Timeout: dialTimeout, Control: h.mgr.bindControl}
 	if source.Port > 0 {
+		d := dialer
 		switch network {
 		case N.NetworkTCP:
-			dialer.LocalAddr = &net.TCPAddr{Port: int(source.Port)}
+			d.LocalAddr = &net.TCPAddr{Port: int(source.Port)}
 		case N.NetworkUDP:
-			dialer.LocalAddr = &net.UDPAddr{Port: int(source.Port)}
+			d.LocalAddr = &net.UDPAddr{Port: int(source.Port)}
+		}
+		if c, err := d.Dial(network, destination.String()); err == nil || network == N.NetworkUDP {
+			return c, err
 		}
 	}
-	return dialer.Dial(network, addr)
+	return dialer.Dial(network, destination.String())
 }
 
-func (h *handler) dialBypassWithoutLocalPort(network string, destination M.Socksaddr) (net.Conn, error) {
-	addr := net.JoinHostPort(destination.AddrString(), fmt.Sprint(destination.Port))
-	return (&net.Dialer{
-		Timeout: 5 * time.Second,
-		Control: h.mgr.bindControl,
-	}).Dial(network, addr)
-}
-
+// relayUDPPcap relays a UDP flow whose source port is held by the game
+// itself: outbound datagrams are injected raw, inbound ones are captured.
 func (h *handler) relayUDPPcap(tunConn N.PacketConn, source, destination M.Socksaddr) {
-	localIP := h.mgr.localIPv4()
+	localIP := h.mgr.phys.IP
 	if localIP == nil {
 		return
 	}
-	h.mgr.logger.WithFields(logrus.Fields{
-		"src": source.String(), "dst": destination.String(),
-	}).Info("UDP pcap relay active")
-
 	stop, err := h.mgr.rawSock.MonitorUDPInbound(localIP, source.Port, func(srcIP net.IP, srcPort uint16, payload []byte) {
 		addr, ok := netip.AddrFromSlice(srcIP.To4())
 		if !ok {
 			return
 		}
-		remote := M.SocksaddrFrom(addr, srcPort)
-		if writeErr := tunConn.WritePacket(buf.As(payload), remote); writeErr != nil {
-			h.mgr.logger.WithError(writeErr).Debug("pcap UDP write to TUN failed")
-		}
+		_ = tunConn.WritePacket(buf.As(payload), M.SocksaddrFrom(addr, srcPort))
 	})
 	if err != nil {
 		h.mgr.logger.WithError(err).Warn("pcap UDP inbound monitor failed")
-	} else if stop != nil {
-		defer stop()
+		return
 	}
+	defer stop()
 
 	dstIP := destination.Addr.AsSlice()
 	for {
-		b := buf.NewSize(65535)
-		tunConn.SetReadDeadline(time.Now().Add(30 * time.Second))
-		_, err := tunConn.ReadPacket(b)
-		if err != nil {
+		b := buf.NewPacket()
+		tunConn.SetReadDeadline(time.Now().Add(udpIdleTimeout))
+		if _, err := tunConn.ReadPacket(b); err != nil {
 			b.Release()
-			break
+			return
 		}
-		conn := rawsock.ConnInfo{
-			SrcIP:   localIP,
-			DstIP:   dstIP,
-			SrcPort: source.Port,
-			DstPort: destination.Port,
-		}
-		if err := h.mgr.rawSock.SendUDP(conn, b.Bytes()); err != nil {
+		err := h.mgr.rawSock.SendUDP(rawsock.ConnInfo{
+			SrcIP: localIP, DstIP: dstIP, SrcPort: source.Port, DstPort: destination.Port,
+		}, b.Bytes())
+		b.Release()
+		if err != nil {
 			h.mgr.logger.WithError(err).Debug("pcap UDP inject failed")
 		}
-		b.Release()
 	}
 }
 
-func (h *handler) relayUDP(tunConn N.PacketConn, realConn net.Conn, destination M.Socksaddr) {
+// relayUDP copies datagrams both ways until either side is idle for
+// udpIdleTimeout or fails; both sides are torn down together.
+func relayUDP(tunConn N.PacketConn, real net.Conn, destination M.Socksaddr) {
+	var once sync.Once
+	closeBoth := func() {
+		once.Do(func() {
+			now := time.Now()
+			real.SetDeadline(now)
+			tunConn.SetReadDeadline(now)
+		})
+	}
+
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		rawBuf := make([]byte, 65535)
+		defer closeBoth()
+		b := buf.Get(65535)
+		defer buf.Put(b)
 		for {
-			realConn.SetReadDeadline(time.Now().Add(30 * time.Second))
-			n, err := realConn.Read(rawBuf)
+			real.SetReadDeadline(time.Now().Add(udpIdleTimeout))
+			n, err := real.Read(b)
 			if err != nil {
 				return
 			}
-			if err := tunConn.WritePacket(buf.As(rawBuf[:n]), destination); err != nil {
+			if err := tunConn.WritePacket(buf.As(b[:n]), destination); err != nil {
 				return
 			}
 		}
 	}()
 
 	for {
-		b := buf.NewSize(65535)
-		tunConn.SetReadDeadline(time.Now().Add(30 * time.Second))
+		b := buf.NewPacket()
+		tunConn.SetReadDeadline(time.Now().Add(udpIdleTimeout))
 		_, err := tunConn.ReadPacket(b)
 		if err != nil {
 			b.Release()
 			break
 		}
-		_, err = realConn.Write(b.Bytes())
+		_, err = real.Write(b.Bytes())
 		b.Release()
 		if err != nil {
 			break
 		}
 	}
+	closeBoth()
 	<-done
 }
 
-func resolveDst(addr, ip string, port uint16) string {
+func (h *handler) describe(destination M.Socksaddr) string {
 	if dns := gecitdns.GetDNSServer(); dns != nil {
-		if domain := dns.PopDomain(ip); domain != "" {
-			return fmt.Sprintf("%s:%d", domain, port)
+		if names := dns.DomainsForIP(destination.Addr.Unmap().String()); len(names) > 0 {
+			return names[len(names)-1] + ":" + strconv.Itoa(int(destination.Port))
 		}
 	}
-	return addr
+	return destination.String()
 }
 
-const idleTimeout = 5 * time.Minute
+func (h *handler) describeSNI(destination M.Socksaddr, sni string) string {
+	if sni != "" {
+		return sni + ":" + strconv.Itoa(int(destination.Port))
+	}
+	return h.describe(destination)
+}
 
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.Is(err, os.ErrDeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout())
+}
+
+// pipe copies both directions, propagating half-close so request/response
+// protocols that shut down their write side keep working. A direction that
+// sees no data for tcpIdleTimeout ends the connection.
 func pipe(a, b net.Conn) {
 	var wg sync.WaitGroup
 	wg.Add(2)
+	teardown := func() {
+		now := time.Now()
+		a.SetDeadline(now)
+		b.SetDeadline(now)
+	}
 	cp := func(dst, src net.Conn) {
 		defer wg.Done()
-		// Idle timeout: if no data flows for idleTimeout, close both sides.
-		// Prevents goroutine/fd accumulation from idle connections.
-		buf := make([]byte, 32*1024)
+		buffer := buf.Get(32 * 1024)
+		defer buf.Put(buffer)
 		for {
-			src.SetReadDeadline(time.Now().Add(idleTimeout))
-			n, err := src.Read(buf)
+			src.SetReadDeadline(time.Now().Add(tcpIdleTimeout))
+			n, err := src.Read(buffer)
 			if n > 0 {
-				if _, wErr := dst.Write(buf[:n]); wErr != nil {
+				if _, wErr := dst.Write(buffer[:n]); wErr != nil {
 					break
 				}
 			}
 			if err != nil {
+				if err == io.EOF {
+					if cw, ok := dst.(interface{ CloseWrite() error }); ok && cw.CloseWrite() == nil {
+						return
+					}
+				}
 				break
 			}
 		}
-		a.SetDeadline(time.Now())
-		b.SetDeadline(time.Now())
+		// Error or idle: tear down both directions.
+		teardown()
 	}
 	go cp(b, a)
 	go cp(a, b)

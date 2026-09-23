@@ -27,6 +27,7 @@ enum L10n {
     static var loading: String { pick("Loading...", "Yukleniyor...") }
     static var installNotFound: String { pick("Installation not found", "Kurulum bulunamadi") }
     static var statusUnreadable: String { pick("Could not read status", "Durum okunamadi") }
+    static var working: String { pick("Working...", "Isleniyor...") }
     static var active: String { pick("Active", "Aktif") }
     static var inactive: String { pick("Inactive", "Kapali") }
     static var running: String { pick("Running", "Calisiyor") }

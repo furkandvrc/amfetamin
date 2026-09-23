@@ -7,8 +7,9 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   brand.EngineName,
-	Short: brand.EngineName + " — DPI bypass via fake TLS ClientHello injection + DoH DNS",
+	Use:     brand.EngineName,
+	Version: brand.Version,
+	Short:   brand.EngineName + " — DPI bypass via fake TLS ClientHello injection + DoH DNS",
 	Long: brand.ProductName + ` engine injects fake TLS ClientHello packets to desynchronize DPI middleboxes.
 Built-in DoH (DNS-over-HTTPS) resolver bypasses DNS poisoning.
 

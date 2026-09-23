@@ -12,6 +12,7 @@ type Config struct {
 	DoHUpstream       string   `yaml:"doh_upstream" mapstructure:"doh_upstream"`
 	SplitTunnel       bool     `yaml:"split_tunnel" mapstructure:"split_tunnel"`
 	BypassRules       []string `yaml:"bypass_rules" mapstructure:"bypass_rules"`
+	FilterAAAA        bool     `yaml:"filter_aaaa" mapstructure:"filter_aaaa"`
 }
 
 func DefaultConfig() Config {
@@ -24,5 +25,6 @@ func DefaultConfig() Config {
 		FakeTTL:           8,
 		DoHEnabled:        true,
 		DoHUpstream:       "cloudflare",
+		FilterAAAA:        true,
 	}
 }

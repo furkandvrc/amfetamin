@@ -8,12 +8,41 @@
 
 | Platform | File | Install |
 |----------|------|---------|
-| **Windows** | `amfetamin-windows.zip` | Run `Amfetamin.exe`, then click **Install to device** |
-| **macOS** | `amfetamin-macos.zip` | `chmod +x setup.sh amfetamin lib/*.sh` then `sudo bash amfetamin install` |
+| **Windows** | `amfetamin-windows.zip` | Extract, run `Amfetamin.exe`, press **KUR VE BAĞLAN / INSTALL & CONNECT** |
+| **macOS** | `amfetamin-macos.zip` | `sudo bash amfetamin install` in the extracted folder |
 
-**Update:** Download the new zip, delete the old folder, open the new zip, then **Install to device**. Cleanup is not required.
+**Güncelleme / Update:** Yeni zip'i çıkarıp `Amfetamin.exe`'yi çalıştır; eski sürüm otomatik kapanır ve yenisiyle değiştirilir. / Extract the new zip and run `Amfetamin.exe`; the running version is replaced automatically.
 
 ---
+
+## v4.0.0
+
+Tamamen elden geçirilmiş sürüm. / Complete overhaul.
+
+### Windows
+- **Yeni uygulama (C#, .NET Framework 4.8):** PowerShell launcher kaldırıldı. Tüm işlemler arka planda çalışır; kurulum, TTL ayarı ve Npcap kurulumu sırasında pencere artık donmuyor.
+- **Npcap kurulumu düzeltildi:** "Geçersiz URI: Ana bilgisayar adı ayrıştırılamadı" hatası giderildi (config'ten silinen `npcapUrl`). En güncel sürüm npcap.com'dan bulunuyor, imzası doğrulanıyor, kurulum asenkron bekleniyor.
+- **Tek zip, gömülü motor:** Motor zip'in içinde geliyor; ayrı indirme ya da `engine-v*` sürümü yok.
+- **Tepsi simgesi ve watchdog:** Motor çökerse otomatik yeniden bağlanıyor. Kapatınca tepside çalışmaya devam ediyor.
+- **Temiz kapatma:** Motor sinyal ile durduruluyor, DNS ve rotalar her zaman geri alınıyor. `--cleanup` ile elle onarım.
+- **Oyunlar sayfası:** Warframe, LoL/Valorant, Rust, Steam, Fortnite, Apex, GTA profilleri, *Tüm oyunlar (otomatik)* ve özel portlar.
+- **Eski sürümden geçiş otomatik:** Yeni `Amfetamin.exe` ilk açılışta eski kurulumu algılıyor. Eski motoru ve görevi temizleyip yerlerine yenilerini kuruyor, ayarları ve TTL'i koruyor, bağlantı açıksa yeniden bağlanıyor. Kaldırma ya da yeniden kurulum gerekmiyor.
+- **Otomatik güncelleme:** v4'ten itibaren yeni sürümler arka planda indirilip SHA256 ile doğrulanıyor ve kuruluyor (Ayarlar'dan kapatılabilir).
+- Çakışan yazılım uyarısı (ZeroTier, GoodbyeDPI, zapret, WARP, VPN'ler), teşhis raporu, güncelleme kontrolü, tam kaldırma.
+
+### Motor / Engine
+- **Ping:** Npcap yakalaması immediate mode'da çalışıyor. Eskiden her HTTPS bağlantısına ve aktarılan her oyun paketine 50–100 ms gecikme ekleniyordu.
+- **Oyun UDP'si tünelden tamamen çıkarılıyor** (host route ile); `udp:auto` ile tüm oyunlar için. Discord her zaman tünelde kalıyor.
+- **Farklı bilgisayarlarda çalışmama:** Fiziksel arayüz artık varsayılan rotadan bulunuyor (VirtualBox/Hyper-V/VPN adaptörü olan makineler). Gateway MAC'i `SendARP` ile çözülüyor.
+- **Windows motoru cgo'suz:** MinGW/DLL bağımlılığı yok; Npcap çalışma zamanında yükleniyor.
+- **DNS:** Önbellek, TCP dinleyici, AAAA filtresi (IPv6'lı hatlarda trafik tüneli atlamıyor). DHCP DNS doğru geri yükleniyor (Türkçe Windows'ta da). Sınırsız büyüyen bellek tablosu düzeltildi.
+- Seq/ack takibi yeniden yazıldı (bayat port eşleşmesi ve sızıntı yok). Yarım kapanan TCP bağlantıları artık kopmuyor. Log dosyası 5 MB'da döndürülüyor.
+
+### macOS
+- **Motor hiç başlamıyordu:** `core.sh` bash 4'e özgü `local -n` kullanıyordu; macOS'un bash 3.2'si ile uyumlu hale getirildi.
+- **Açılışta otomatik başlatma çalışmıyordu:** launchd motoru script bittiği anda kapatıyordu. Motor artık doğrudan launchd altında çalışıyor ve çökerse yeniden başlatılıyor.
+- **Sahte paketler kabloya çıkmıyordu:** Raw socket artık fiziksel arayüze bağlanıyor (`IP_BOUND_IF`). Oyun rotası hariç tutma da artık uygulanıyor.
+- Python gerekmiyor (Xcode araçları penceresi açılmıyor). Motor zip'e gömülü ve SHA256 doğrulamalı. Menü çubuğu uygulaması donmuyor.
 
 ## v3.1.28
 

@@ -1,47 +1,24 @@
 #!/bin/bash
-# Package amfetamin-windows.zip from Mac (script launcher; build .exe on Windows with pack-windows.ps1)
+# Build Amfetamin.exe (.NET Framework 4.8, builds on any OS with the .NET SDK)
+# and package dist/amfetamin-windows.zip with the engine bundled.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-WIN="$ROOT/windows"
-STAGING="$ROOT/dist/amfetamin-windows-staging"
+VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"
+STAGING="$ROOT/dist/amfetamin-windows"
 ZIP="$ROOT/dist/amfetamin-windows.zip"
+ENGINE="$ROOT/dist/engine/amfetamin-engine.exe"
 
-echo "=== amfetamin Windows release pack (script launcher) ==="
-
-write_crlf() {
-    local src="$1" dest="$2"
-    sed 's/$/\r/' "$src" > "$dest"
-}
+[[ -f "$ENGINE" ]] || bash "$ROOT/scripts/build-engine.sh" windows
 
 rm -rf "$STAGING" "$ZIP"
-mkdir -p "$STAGING/lib"
+mkdir -p "$STAGING/engine"
+dotnet build "$ROOT/windows/Amfetamin.csproj" -c Release -p:Version="$VERSION" -o "$ROOT/dist/win-build" --nologo
+cp "$ROOT/dist/win-build/Amfetamin.exe" "$ROOT/dist/win-build/Amfetamin.exe.config" "$STAGING/"
+cp "$ENGINE" "$STAGING/engine/"
+cp "$ROOT/LICENSE" "$STAGING/LICENSE.txt"
+sed 's/$/\r/' "$ROOT/windows/README.md" > "$STAGING/README.txt"
 
-for name in Amfetamin.ps1 Amfetamin.bat Amfetamin.vbs config.json diagnose.ps1 diagnose.bat amfetamin.ico; do
-    src="$WIN/$name"
-    [[ -f "$src" ]] || continue
-    case "$name" in
-        *.ps1|*.bat|*.vbs) write_crlf "$src" "$STAGING/$name" ;;
-        *) cp "$src" "$STAGING/$name" ;;
-    esac
-done
-
-for name in LICENSE README.md; do
-    src="$ROOT/$name"
-    [[ -f "$src" ]] && cp "$src" "$STAGING/$name"
-done
-
-for f in "$WIN/lib/"*.ps1; do
-    [[ -f "$f" ]] || continue
-    write_crlf "$f" "$STAGING/lib/$(basename "$f")"
-done
-
-mkdir -p "$ROOT/dist"
-(
-    cd "$STAGING"
-    zip -qr "$ZIP" .
-)
-rm -rf "$STAGING"
-echo ""
+(cd "$STAGING" && zip -qr "$ZIP" .)
+rm -rf "$STAGING" "$ROOT/dist/win-build"
 echo "Release ready: $ZIP ($(du -h "$ZIP" | cut -f1))"
-echo "Note: includes PowerShell launcher. For Amfetamin.exe run scripts/pack-windows.ps1 on Windows."

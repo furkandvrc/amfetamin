@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -28,12 +29,16 @@ func init() {
 	runCmd.Flags().Int("restore-mss", 0, "restored MSS value, 0 = auto/1460 (Linux only)")
 	runCmd.Flags().String("cgroup", "/sys/fs/cgroup", "cgroup v2 path (Linux only)")
 	runCmd.Flags().BoolP("verbose", "v", false, "enable debug logging")
-	runCmd.Flags().Bool("split-tunnel", false, "legacy flag (no routing change)")
-	runCmd.Flags().StringArray("bypass-rule", nil, "bypass TUN for port/spec (e.g. udp:4950-4955, tcp:6695-6699, 27015)")
+	runCmd.Flags().Bool("split-tunnel", false, "keep LAN/private ranges off the TUN")
+	runCmd.Flags().StringArray("bypass-rule", nil, "bypass TUN for port/spec (e.g. udp:4950-4955, tcp:6695-6699, 27015, udp:auto)")
+	runCmd.Flags().String("log-file", "", "write logs to this file (rotated at 5 MB) instead of stderr")
+	runCmd.Flags().Bool("filter-aaaa", true, "answer AAAA queries empty so apps use IPv4 through the tunnel")
 
 	viper.BindPFlag("verbose", runCmd.Flags().Lookup("verbose"))
 	viper.BindPFlag("split_tunnel", runCmd.Flags().Lookup("split-tunnel"))
 	viper.BindPFlag("bypass_rules", runCmd.Flags().Lookup("bypass-rule"))
+	viper.BindPFlag("filter_aaaa", runCmd.Flags().Lookup("filter-aaaa"))
+	viper.BindPFlag("log_file", runCmd.Flags().Lookup("log-file"))
 	viper.BindPFlag("fake_ttl", runCmd.Flags().Lookup("fake-ttl"))
 	viper.BindPFlag("doh_enabled", runCmd.Flags().Lookup("doh"))
 	viper.BindPFlag("doh_upstream", runCmd.Flags().Lookup("doh-upstream"))
@@ -45,7 +50,7 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 }
 
-func runEngine(cmd *cobra.Command, args []string) error {
+func runEngine(cmd *cobra.Command, args []string) (err error) {
 	if err := checkPrivileges(); err != nil {
 		return err
 	}
@@ -55,6 +60,20 @@ func runEngine(cmd *cobra.Command, args []string) error {
 	if viper.GetBool("verbose") {
 		logger.SetLevel(logrus.DebugLevel)
 	}
+	if path := viper.GetString("log_file"); path != "" {
+		f, err := openRotatingFile(path, 5<<20)
+		if err != nil {
+			return fmt.Errorf("open log file: %w", err)
+		}
+		logger.SetOutput(f)
+		logger.SetFormatter(&logrus.TextFormatter{FullTimestamp: true, DisableColors: true})
+		logrus.SetOutput(f)
+	}
+	defer func() {
+		if err != nil {
+			logger.WithError(err).Error("engine exited with error")
+		}
+	}()
 
 	cfg := engine.Config{
 		MSS:               viper.GetInt("mss"),
@@ -68,7 +87,20 @@ func runEngine(cmd *cobra.Command, args []string) error {
 		DoHUpstream:       viper.GetString("doh_upstream"),
 		SplitTunnel:       viper.GetBool("split_tunnel"),
 		BypassRules:       viper.GetStringSlice("bypass_rules"),
+		FilterAAAA:        viper.GetBool("filter_aaaa"),
 	}
+
+	release, lockErr := acquireInstanceLock()
+	if lockErr != nil {
+		return lockErr
+	}
+	defer release()
+
+	// Listen for stop requests before touching system settings so a stop
+	// that arrives during startup still triggers a clean shutdown.
+	stopCh := stopRequests()
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	eng, err := newPlatformEngine(cfg, logger)
 	if err != nil {
@@ -79,23 +111,26 @@ func runEngine(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	if err := eng.Start(ctx); err != nil {
-		return err
+		return fmt.Errorf("start: %w", err)
 	}
 
 	logger.WithField("mode", eng.Mode()).Info(brand.ProductName + " engine running — press Ctrl+C to stop")
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
+	select {
+	case <-sigCh:
+	case <-stopCh:
+	}
 
 	logger.Info("shutting down...")
 	return eng.Stop()
 }
 
 func toUint16Slice(ints []int) []uint16 {
-	out := make([]uint16, len(ints))
-	for i, v := range ints {
-		out[i] = uint16(v)
+	out := make([]uint16, 0, len(ints))
+	for _, v := range ints {
+		if v > 0 && v <= 65535 {
+			out = append(out, uint16(v))
+		}
 	}
 	return out
 }

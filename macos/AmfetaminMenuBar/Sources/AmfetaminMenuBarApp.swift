@@ -40,10 +40,11 @@ struct AmfetaminMenuView: View {
         Divider()
 
         Button(L10n.start) { controller.runSudo("start") }
-            .disabled(controller.isRunning)
+            .disabled(controller.isRunning || controller.isBusy)
         Button(L10n.stop) { controller.runSudo("stop") }
-            .disabled(!controller.isRunning)
+            .disabled(!controller.isRunning || controller.isBusy)
         Button(L10n.retuneTtl) { controller.runSudo("tune") }
+            .disabled(controller.isBusy)
 
         Divider()
 
@@ -54,6 +55,7 @@ struct AmfetaminMenuView: View {
 
         Button(L10n.uninstall) { controller.confirmCleanup() }
             .foregroundStyle(.red)
+            .disabled(controller.isBusy)
 
         Divider()
 

@@ -3,6 +3,7 @@ package seqtrack
 import (
 	"fmt"
 	"net"
+	"time"
 )
 
 type SeqTracker struct{}
@@ -13,6 +14,6 @@ func NewSeqTracker(_ string, _ []uint16) (*SeqTracker, error) {
 
 func SetSeqTracker(_ *SeqTracker) {}
 
-func GetSeqAck(_ net.Conn) (seq, ack uint32) { return 1, 1 }
+func GetSeqAck(_ net.Conn, _ time.Time) (seq, ack uint32) { return 1, 1 }
 
 func (st *SeqTracker) Stop() {}

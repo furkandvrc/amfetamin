@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['**']
+  pull_request:
+
+jobs:
+  engine:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - name: gofmt
+        run: test -z "$(gofmt -l cmd pkg)"
+      - name: Vet (windows)
+        run: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet -tags with_gvisor ./cmd/... ./pkg/tun/... ./pkg/dns/... ./pkg/rawsock/... ./pkg/capture/... ./pkg/netif/...
+      - name: Build (windows)
+        run: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags with_gvisor -o /dev/null ./cmd/gecit
+      - name: Test (macOS)
+        if: runner.os == 'macOS'
+        run: go vet -tags with_gvisor ./... && go test -tags with_gvisor ./...
+
+  windows-app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet build windows/Amfetamin.csproj -c Release -warnaserror --nologo
+
+  macos-app:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax (bash 3.2)
+        run: for f in macos/amfetamin macos/*.sh macos/lib/*.sh scripts/*.sh; do /bin/bash -n "$f"; done
+      - name: Menu bar app
+        run: cd macos/AmfetaminMenuBar && swift build -c release

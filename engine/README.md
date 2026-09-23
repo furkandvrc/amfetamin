@@ -2,42 +2,40 @@
 
 DPI bypass engine used by amfetamin. Forked from [boratanrikulu/gecit](https://github.com/boratanrikulu/gecit).
 
-## Routing
+## Routing (macOS / Windows)
 
-**Default: full TUN** (all traffic proxied like pre-split builds). Discord voice UDP goes through TUN — required on blocked networks.
+Everything goes through the TUN (`utun85`, 10.0.85.1/30) and is proxied out of
+the physical interface, which is detected from the default route before the
+TUN is created. TLS connections to the target ports (443) get fake
+ClientHellos with a low TTL; the built-in DoH server answers DNS on
+127.0.0.1:53 (A records only by default — `--filter-aaaa`, since the TUN is
+IPv4-only).
 
-**Warframe bypass (always on):** UDP/TCP ports **4950–4955** and TCP **6695–6699** bypass TUN so UPnP/matchmaking work.
+Game traffic can be taken out of the TUN with `--bypass-rule`:
 
-The legacy `--split-tunnel` flag no longer changes routing.
+| Spec | Effect |
+|------|--------|
+| `udp:4950-4955`, `tcp:6695`, `27015` | flows from/to these ports skip the tunnel |
+| `udp:auto` | every UDP flow except DNS/QUIC/DoT and Discord skips the tunnel |
 
+UDP game flows (and flows from a matching source port) are *routed around*
+the TUN: the destination gets a /32 host route via the physical gateway
+(Windows) or is excluded from the TUN routes (macOS). Discord destinations
+always stay in the tunnel.
 
-## Build (macOS Apple Silicon)
+## Control
+
+- `run --log-file <path>` writes a rotating log (5 MB) instead of stderr.
+- Windows: `amfetamin-engine stop` (or signalling `Global\AmfetaminEngineStop`)
+  shuts the engine down cleanly; a second instance refuses to start.
+- `cleanup` restores DNS and removes host routes after a crash.
+
+## Build
 
 ```bash
-cd engine
-make gecit-darwin-arm64
-# output: bin/gecit-darwin-arm64
+../scripts/build-engine.sh windows   # CGO_ENABLED=0 — Npcap is loaded at runtime
+../scripts/build-engine.sh darwin    # macOS host, arm64 + amd64 (libpcap via cgo)
 ```
 
-Or:
-
-```bash
-go build -tags with_gvisor -ldflags="-s -w" -o bin/amfetamin-engine-darwin-arm64 ./cmd/gecit
-```
-
-Copy to install location:
-
-```bash
-sudo cp bin/amfetamin-engine-darwin-arm64 \
-  ~/Library/Application\ Support/Amfetamin/bin/amfetamin-engine
-sudo bash amfetamin stop && sudo bash amfetamin start
-```
-
-## Release
-
-Tag `engine-v0.1.8` on GitHub with assets:
-
-- `amfetamin-engine-darwin-arm64`
-- `amfetamin-engine-darwin-amd64`
-- `amfetamin-engine.exe`
-- `checksums.txt`
+Releases are built by `.github/workflows/release.yml` from a `vX.Y.Z` tag; the
+engine is bundled in both platform zips and attached with `checksums.txt`.

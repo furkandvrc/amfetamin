@@ -6,10 +6,15 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
+	"sync/atomic"
 
 	N "github.com/sagernet/sing/common/network"
 )
+
+// AutoUDPSpec is the special bypass rule that sends every UDP flow that
+// doesn't need DPI evasion (i.e. not DNS/web/Discord) straight out of the
+// physical NIC. It keeps game traffic out of the userspace stack entirely.
+const AutoUDPSpec = "udp:auto"
 
 type bypassRule struct {
 	tcp   bool
@@ -19,23 +24,39 @@ type bypassRule struct {
 	label string
 }
 
-var (
-	bypassRulesMu sync.RWMutex
-	bypassRules   []bypassRule
-)
+type ruleSet struct {
+	rules   []bypassRule
+	autoUDP bool
+}
 
-func SetBypassRules(specs []string) {
-	parsed := make([]bypassRule, 0, len(specs))
+var activeRules atomic.Pointer[ruleSet]
+
+// SetBypassRules replaces the active port rules. Invalid specs are returned
+// so the caller can log them; valid ones are still applied.
+func SetBypassRules(specs []string) []error {
+	rs := &ruleSet{}
+	var errs []error
 	for _, spec := range specs {
-		rules, err := parseBypassRuleSpec(spec)
-		if err != nil {
+		if strings.EqualFold(strings.TrimSpace(spec), AutoUDPSpec) {
+			rs.autoUDP = true
 			continue
 		}
-		parsed = append(parsed, rules...)
+		rules, err := parseBypassRuleSpec(spec)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		rs.rules = append(rs.rules, rules...)
 	}
-	bypassRulesMu.Lock()
-	bypassRules = parsed
-	bypassRulesMu.Unlock()
+	activeRules.Store(rs)
+	return errs
+}
+
+func currentRules() *ruleSet {
+	if rs := activeRules.Load(); rs != nil {
+		return rs
+	}
+	return &ruleSet{}
 }
 
 func parseBypassRuleSpec(spec string) ([]bypassRule, error) {
@@ -44,21 +65,15 @@ func parseBypassRuleSpec(spec string) ([]bypassRule, error) {
 		return nil, fmt.Errorf("empty bypass rule")
 	}
 
-	tcp := true
-	udp := true
+	tcp, udp := true, true
 	rest := spec
-	if strings.Contains(spec, ":") {
-		proto, ports, ok := strings.Cut(spec, ":")
-		if !ok {
-			return nil, fmt.Errorf("invalid bypass rule %q", spec)
-		}
+	if proto, ports, ok := strings.Cut(spec, ":"); ok {
 		switch strings.ToLower(strings.TrimSpace(proto)) {
 		case "tcp":
 			tcp, udp = true, false
 		case "udp":
 			tcp, udp = false, true
-		case "both":
-			tcp, udp = true, true
+		case "both", "any":
 		default:
 			return nil, fmt.Errorf("unknown protocol in %q", spec)
 		}
@@ -67,30 +82,20 @@ func parseBypassRuleSpec(spec string) ([]bypassRule, error) {
 
 	start, end, err := parsePortRange(strings.TrimSpace(rest))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%q: %w", spec, err)
 	}
-
-	return []bypassRule{{
-		tcp:   tcp,
-		udp:   udp,
-		start: start,
-		end:   end,
-		label: spec,
-	}}, nil
+	return []bypassRule{{tcp: tcp, udp: udp, start: start, end: end, label: spec}}, nil
 }
 
 func parsePortRange(s string) (start, end uint16, err error) {
 	if s == "" {
 		return 0, 0, fmt.Errorf("empty port")
 	}
-	if strings.Contains(s, "-") {
-		parts := strings.SplitN(s, "-", 2)
-		start, err = parsePort(parts[0])
-		if err != nil {
+	if lo, hi, ok := strings.Cut(s, "-"); ok {
+		if start, err = parsePort(lo); err != nil {
 			return 0, 0, err
 		}
-		end, err = parsePort(parts[1])
-		if err != nil {
+		if end, err = parsePort(hi); err != nil {
 			return 0, 0, err
 		}
 		if start > end {
@@ -99,15 +104,11 @@ func parsePortRange(s string) (start, end uint16, err error) {
 		return start, end, nil
 	}
 	start, err = parsePort(s)
-	if err != nil {
-		return 0, 0, err
-	}
-	return start, start, nil
+	return start, start, err
 }
 
 func parsePort(s string) (uint16, error) {
-	s = strings.TrimSpace(s)
-	n, err := strconv.ParseUint(s, 10, 16)
+	n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 16)
 	if err != nil || n == 0 {
 		return 0, fmt.Errorf("invalid port %q", s)
 	}
@@ -115,11 +116,7 @@ func parsePort(s string) (uint16, error) {
 }
 
 func matchConfiguredBypass(network string, port uint16) (bool, string) {
-	bypassRulesMu.RLock()
-	rules := bypassRules
-	bypassRulesMu.RUnlock()
-
-	for _, r := range rules {
+	for _, r := range currentRules().rules {
 		if network == N.NetworkUDP && !r.udp {
 			continue
 		}

@@ -10,162 +10,174 @@ import (
 	"sync"
 	"time"
 
-	"github.com/boratanrikulu/gecit/pkg/seqtrack"
+	"github.com/boratanrikulu/gecit/pkg/netif"
 	"github.com/boratanrikulu/gecit/pkg/rawsock"
+	"github.com/boratanrikulu/gecit/pkg/seqtrack"
 	"github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common/control"
 	singlog "github.com/sagernet/sing/common/logger"
 	"github.com/sirupsen/logrus"
 )
 
-const tunMTU = 1420
+const (
+	tunName = "utun85"
+	tunMTU  = 1420
+)
+
+var (
+	tunPrefix  = netip.MustParsePrefix("10.0.85.1/30")
+	tunGateway = netip.MustParseAddr("10.0.85.2")
+)
 
 type Config struct {
-	Ports        []uint16
-	FakeTTL      int
-	Interface    string
-	SplitTunnel  bool
-	BypassRules  []string
+	Ports       []uint16
+	FakeTTL     int
+	Interface   string
+	LANExclude  bool // keep RFC1918/multicast off the TUN (legacy --split-tunnel)
+	BypassRules []string
 }
 
 type Manager struct {
+	cfg         Config
+	targetPorts map[uint16]bool
+	logger      *logrus.Logger
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	phys           netif.Info
 	tunDevice      tun.Tun
 	stack          tun.Stack
 	rawSock        rawsock.RawSocket
-	cfg            Config
-	targetPorts    map[uint16]bool
-	logger         *logrus.Logger
-	ctx            context.Context
-	cancel         context.CancelFunc
 	ifaceFinder    control.InterfaceFinder
 	bindControl    control.Func
 	networkMonitor tun.NetworkUpdateMonitor
 	ifaceMonitor   tun.DefaultInterfaceMonitor
-	discordRoutes  map[netip.Prefix]struct{}
-	discordRoutesMu sync.Mutex
-	gameRouteExcludes   map[netip.Prefix]struct{}
-	gameRouteExcludesMu sync.Mutex
+
+	routesMu     sync.Mutex
+	routedAround map[netip.Prefix]struct{}
+	routeUpdate  *time.Timer // darwin: coalesced route rebuild
 }
 
 func NewManager(cfg Config, logger *logrus.Logger) *Manager {
-	if cfg.FakeTTL == 0 {
+	if cfg.FakeTTL <= 0 {
 		cfg.FakeTTL = 8
 	}
 	if len(cfg.Ports) == 0 {
 		cfg.Ports = []uint16{443}
 	}
-	ports := make(map[uint16]bool)
+	ports := make(map[uint16]bool, len(cfg.Ports))
 	for _, p := range cfg.Ports {
 		ports[p] = true
 	}
 	return &Manager{
-		cfg:               cfg,
-		targetPorts:       ports,
-		logger:            logger,
-		discordRoutes:     make(map[netip.Prefix]struct{}),
-		gameRouteExcludes: make(map[netip.Prefix]struct{}),
+		cfg:          cfg,
+		targetPorts:  ports,
+		logger:       logger,
+		routedAround: make(map[netip.Prefix]struct{}),
 	}
 }
 
-func (m *Manager) initBypassRules() {
-	SetBypassRules(m.cfg.BypassRules)
-}
-
-func (m *Manager) Start(ctx context.Context) error {
-	m.ctx, m.cancel = context.WithCancel(ctx)
-	m.initBypassRules()
-	registerDiscordRouteManager(m)
-
-	physIface := m.cfg.Interface
-	if physIface == "" {
-		physIface = detectPhysicalInterface()
+// Physical resolves the uplink before anything else touches routing. It is
+// safe to call before Start (the DoH client needs it early).
+func (m *Manager) Physical() (netif.Info, error) {
+	if m.phys.Name != "" {
+		return m.phys, nil
 	}
-
-	rs, err := rawsock.New(physIface)
+	info, err := netif.Default(m.cfg.Interface)
 	if err != nil {
+		return netif.Info{}, err
+	}
+	m.phys = info
+	return info, nil
+}
+
+func (m *Manager) Start(ctx context.Context) (err error) {
+	m.ctx, m.cancel = context.WithCancel(ctx)
+	for _, e := range SetBypassRules(m.cfg.BypassRules) {
+		m.logger.WithError(e).Warn("ignoring invalid bypass rule")
+	}
+
+	phys, err := m.Physical()
+	if err != nil {
+		return fmt.Errorf("detect network interface: %w", err)
+	}
+	m.logger.WithField("interface", phys.String()).Info("physical interface")
+
+	// Undo partial setup on any failure below.
+	defer func() {
+		if err != nil {
+			m.Stop()
+		}
+	}()
+
+	if m.rawSock, err = rawsock.New(phys); err != nil {
 		return fmt.Errorf("raw socket: %w", err)
 	}
-	m.rawSock = rs
 
-	if err := m.startSeqTracker(physIface); err != nil {
-		m.logger.WithError(err).Warn("seq tracker unavailable — fakes may be rejected by DPI")
+	if st, stErr := seqtrack.NewSeqTracker(phys.Name, m.cfg.Ports); stErr != nil {
+		m.logger.WithError(stErr).Warn("seq tracker unavailable — fakes may be ignored by DPI")
+	} else {
+		seqtrack.SetSeqTracker(st)
 	}
 
-	if err := m.initNetworking(physIface); err != nil {
-		m.rawSock.Close()
+	if err = m.initNetworking(phys.Name); err != nil {
 		return err
 	}
 
-	tunOpts := m.tunOptions()
-	tunDevice, err := tun.New(tunOpts)
-	if err != nil {
-		m.rawSock.Close()
+	opts := m.tunOptions()
+	if m.tunDevice, err = tun.New(opts); err != nil {
 		return fmt.Errorf("create TUN: %w", err)
 	}
-	m.tunDevice = tunDevice
+	name, _ := m.tunDevice.Name()
 
-	tunName, _ := tunDevice.Name()
-	m.logger.WithField("name", tunName).Info("TUN device created")
-
-	stackName := "gvisor"
-	stack, err := tun.NewStack(stackName, tun.StackOptions{
+	if m.stack, err = tun.NewStack("gvisor", tun.StackOptions{
 		Context:                m.ctx,
-		Tun:                    tunDevice,
-		TunOptions:             tunOpts,
-		UDPTimeout:             30 * time.Second,
+		Tun:                    m.tunDevice,
+		TunOptions:             opts,
+		UDPTimeout:             60 * time.Second,
 		Handler:                &handler{mgr: m},
 		Logger:                 singlog.Logger(m.logger),
 		ForwarderBindInterface: true,
 		InterfaceFinder:        m.ifaceFinder,
-	})
-	if err != nil {
-		tunDevice.Close()
-		m.rawSock.Close()
+	}); err != nil {
 		return fmt.Errorf("create stack: %w", err)
 	}
-	m.stack = stack
-
-	if err := tunDevice.Start(); err != nil {
-		stack.Close()
-		tunDevice.Close()
-		m.rawSock.Close()
+	if err = m.tunDevice.Start(); err != nil {
 		return fmt.Errorf("start TUN: %w", err)
 	}
-
-	if err := stack.Start(); err != nil {
-		tunDevice.Close()
-		m.rawSock.Close()
+	if err = m.stack.Start(); err != nil {
 		return fmt.Errorf("start stack: %w", err)
 	}
 
-	mode := "full tunnel"
-	if m.gameBypassMode() {
-		mode = "full tunnel + game route exclude"
-	}
-	fields := logrus.Fields{
-		"tun":   tunName,
-		"ports": m.cfg.Ports,
-		"ttl":   m.cfg.FakeTTL,
-		"mode":  mode,
-	}
-	if m.gameBypassMode() || m.cfg.SplitTunnel {
-		fields["lan_exclude"] = "physical NIC (UPnP/game local traffic)"
-	}
-	if len(m.cfg.BypassRules) > 0 {
-		fields["bypass_rules"] = len(m.cfg.BypassRules)
-		fields["discord_routes"] = len(m.discordRoutePrefixes())
-	}
-	m.logger.WithFields(fields).Info("TUN engine active")
-
+	rules := currentRules()
+	m.logger.WithFields(logrus.Fields{
+		"tun":          name,
+		"ports":        m.cfg.Ports,
+		"ttl":          m.cfg.FakeTTL,
+		"bypass_rules": len(rules.rules),
+		"auto_udp":     rules.autoUDP,
+		"lan_exclude":  m.lanExclude(),
+	}).Info("TUN engine active")
 	return nil
 }
 
-func (m *Manager) GameBypassMode() bool { return m.gameBypassMode() }
+// GameBypassMode reports whether any game bypass rule is configured.
+func (m *Manager) GameBypassMode() bool {
+	rs := currentRules()
+	return len(rs.rules) > 0 || rs.autoUDP
+}
+
+func (m *Manager) lanExclude() bool { return m.cfg.LANExclude || m.GameBypassMode() }
 
 func (m *Manager) Stop() error {
 	m.logger.Info("stopping TUN engine")
-	unregisterDiscordRouteManager(m)
-	m.cleanupGameRouteExcludes()
+	m.routesMu.Lock()
+	if m.routeUpdate != nil {
+		m.routeUpdate.Stop()
+	}
+	m.routesMu.Unlock()
+	m.cleanupRoutesAround()
 
 	if m.cancel != nil {
 		m.cancel()
@@ -176,9 +188,6 @@ func (m *Manager) Stop() error {
 	if m.tunDevice != nil {
 		m.tunDevice.Close()
 	}
-	if m.rawSock != nil {
-		m.rawSock.Close()
-	}
 	if m.ifaceMonitor != nil {
 		m.ifaceMonitor.Close()
 	}
@@ -186,7 +195,9 @@ func (m *Manager) Stop() error {
 		m.networkMonitor.Close()
 	}
 	seqtrack.SetSeqTracker(nil)
-
+	if m.rawSock != nil {
+		m.rawSock.Close()
+	}
 	m.logger.Info("TUN engine stopped")
 	return nil
 }
@@ -196,32 +207,18 @@ func (m *Manager) dialServer(network, addr string, timeout time.Duration) (net.C
 	return dialer.DialContext(m.ctx, network, addr)
 }
 
-// DialContext dials via physical NIC, bypassing TUN. Exported for DoH client.
-// Safe to call before Start() - uses lazy initialization if bindControl not yet set.
+// DialContext dials through the physical NIC, bypassing the TUN. Used by the
+// DoH client, which starts before the TUN exists.
 func (m *Manager) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	ctrl := m.bindControl
 	if ctrl == nil {
-		finder := control.NewDefaultInterfaceFinder()
-		iface := m.cfg.Interface
-		if iface == "" {
-			iface = detectPhysicalInterface()
+		phys, err := m.Physical()
+		if err != nil {
+			return nil, err
 		}
-		ctrl = control.Append(nil, control.BindToInterface(finder, iface, -1))
+		ctrl = control.Append(nil, control.BindToInterface(control.NewDefaultInterfaceFinder(), phys.Name, phys.Index))
 	}
 	return (&net.Dialer{Timeout: 5 * time.Second, Control: ctrl}).DialContext(ctx, network, addr)
-}
-
-func (m *Manager) startSeqTracker(iface string) error {
-	if iface == "" {
-		return fmt.Errorf("no physical interface found")
-	}
-	st, err := seqtrack.NewSeqTracker(iface, m.cfg.Ports)
-	if err != nil {
-		return err
-	}
-	seqtrack.SetSeqTracker(st)
-	m.logger.WithField("interface", iface).Info("seq/ack tracker active")
-	return nil
 }
 
 func (m *Manager) initNetworking(physIface string) error {
@@ -229,21 +226,18 @@ func (m *Manager) initNetworking(physIface string) error {
 	m.bindControl = control.Append(nil, control.BindToInterface(m.ifaceFinder, physIface, -1))
 
 	var err error
-	m.networkMonitor, err = tun.NewNetworkUpdateMonitor(singlog.Logger(m.logger))
-	if err != nil {
+	if m.networkMonitor, err = tun.NewNetworkUpdateMonitor(singlog.Logger(m.logger)); err != nil {
 		return fmt.Errorf("network monitor: %w", err)
 	}
-	m.ifaceMonitor, err = tun.NewDefaultInterfaceMonitor(m.networkMonitor, singlog.Logger(m.logger), tun.DefaultInterfaceMonitorOptions{
+	if m.ifaceMonitor, err = tun.NewDefaultInterfaceMonitor(m.networkMonitor, singlog.Logger(m.logger), tun.DefaultInterfaceMonitorOptions{
 		InterfaceFinder: m.ifaceFinder,
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("interface monitor: %w", err)
 	}
-	if err := m.networkMonitor.Start(); err != nil {
+	if err = m.networkMonitor.Start(); err != nil {
 		return fmt.Errorf("start network monitor: %w", err)
 	}
-	if err := m.ifaceMonitor.Start(); err != nil {
-		m.networkMonitor.Close()
+	if err = m.ifaceMonitor.Start(); err != nil {
 		return fmt.Errorf("start interface monitor: %w", err)
 	}
 	return nil
@@ -251,9 +245,9 @@ func (m *Manager) initNetworking(physIface string) error {
 
 func (m *Manager) tunOptions() tun.Options {
 	opts := tun.Options{
-		Name:             "utun85",
-		Inet4Address:     []netip.Prefix{netip.MustParsePrefix("10.0.85.1/30")},
-		Inet4Gateway:     netip.MustParseAddr("10.0.85.2"),
+		Name:             tunName,
+		Inet4Address:     []netip.Prefix{tunPrefix},
+		Inet4Gateway:     tunGateway,
 		MTU:              tunMTU,
 		AutoRoute:        true,
 		StrictRoute:      false,
@@ -261,66 +255,13 @@ func (m *Manager) tunOptions() tun.Options {
 		InterfaceFinder:  m.ifaceFinder,
 		DNSServers:       []netip.Addr{netip.MustParseAddr("127.0.0.1")},
 	}
-	if m.gameBypassMode() || m.cfg.SplitTunnel {
-		opts.Inet4RouteExcludeAddress = append([]netip.Prefix(nil), m.routeExcludePrefixes()...)
+	var excludes []netip.Prefix
+	if m.lanExclude() {
+		excludes = append(excludes, lanRouteExcludes...)
 	}
+	if routeAroundViaTunOptions {
+		excludes = append(excludes, m.routedAroundPrefixes()...)
+	}
+	opts.Inet4RouteExcludeAddress = excludes
 	return opts
-}
-
-func detectPhysicalInterface() string {
-	ifaces, _ := net.Interfaces()
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		name := iface.Name
-		for _, prefix := range []string{"utun", "bridge", "veth", "vmnet", "lo"} {
-			if len(name) >= len(prefix) && name[:len(prefix)] == prefix {
-				name = ""
-				break
-			}
-		}
-		if name == "" {
-			continue
-		}
-		addrs, _ := iface.Addrs()
-		for _, a := range addrs {
-			ipNet, ok := a.(*net.IPNet)
-			if !ok {
-				continue
-			}
-			if ipv4 := ipNet.IP.To4(); ipv4 != nil && !ipv4.IsLoopback() && !ipv4.Equal(net.IPv4(10, 0, 85, 1)) {
-				return name
-			}
-		}
-	}
-	return ""
-}
-
-func (m *Manager) localIPv4() net.IP {
-	ifaceName := m.cfg.Interface
-	if ifaceName == "" {
-		ifaceName = detectPhysicalInterface()
-	}
-	if ifaceName == "" {
-		return nil
-	}
-	iface, err := net.InterfaceByName(ifaceName)
-	if err != nil {
-		return nil
-	}
-	addrs, err := iface.Addrs()
-	if err != nil {
-		return nil
-	}
-	for _, a := range addrs {
-		ipNet, ok := a.(*net.IPNet)
-		if !ok {
-			continue
-		}
-		if ipv4 := ipNet.IP.To4(); ipv4 != nil && !ipv4.IsLoopback() && !ipv4.Equal(net.IPv4(10, 0, 85, 1)) {
-			return ipv4
-		}
-	}
-	return nil
 }
