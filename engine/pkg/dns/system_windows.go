@@ -55,7 +55,7 @@ func SetSystemDNS(ifaceName ...string) error {
 		return fmt.Errorf("write DNS backup: %w", err)
 	}
 
-	if out, err := netsh("interface", "ipv4", "set", "dnsservers", "name="+iface, "source=static", "address=127.0.0.1", "register=none", "validate=no"); err != nil {
+	if out, err := netsh("interface", "ipv4", "set", "dnsservers", "name="+iface, "source=static", "address="+ActiveIP(), "register=none", "validate=no"); err != nil {
 		return fmt.Errorf("set DNS on %q: %s: %w", iface, strings.TrimSpace(string(out)), err)
 	}
 	flushDNS()
@@ -72,7 +72,7 @@ func RestoreSystemDNS(_ ...string) error {
 				iface = info.Name
 			}
 		}
-		if iface != "" && currentDNS(iface) == "127.0.0.1" {
+		if iface != "" && IsOurAddress(currentDNS(iface)) {
 			applyDNS(iface, "dhcp")
 		}
 		flushDNS()

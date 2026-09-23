@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	listenAddr = "127.0.0.1:53"
 
 	// Per-IP hostname memory used for logging and Discord detection.
 	maxNamesPerIP = 4
@@ -136,29 +135,64 @@ func (s *Server) rememberNames(domain string, ips []string) {
 	}
 }
 
+// listenCandidates are tried in order. The OS resolver only talks to port 53,
+// so when another program already holds 127.0.0.1:53 the server moves to a
+// different loopback address instead of a different port, and the system DNS
+// is pointed there.
+var listenCandidates = []string{"127.0.0.1", "127.0.0.53", "127.53.53.53"}
+
+var activeIP atomic.Value // string
+
+// ActiveIP is the loopback address the running server listens on.
+func ActiveIP() string {
+	if ip, ok := activeIP.Load().(string); ok && ip != "" {
+		return ip
+	}
+	return listenCandidates[0]
+}
+
+// IsOurAddress reports whether ip is one of the addresses this server uses.
+func IsOurAddress(ip string) bool {
+	for _, c := range listenCandidates {
+		if ip == c {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) Start() error {
 	mux := dns.NewServeMux()
 	mux.HandleFunc(".", s.handleQuery)
 
 	// UDP is what stub resolvers use and is required. TCP only serves
 	// clients retrying truncated answers, so it's best effort.
-	if err := s.listen("udp", mux); err != nil {
-		return fmt.Errorf("DNS server (udp %s): %w — is another DNS service using port 53?", listenAddr, err)
+	var firstErr error
+	for _, ip := range listenCandidates {
+		addr := net.JoinHostPort(ip, "53")
+		err := s.listen("udp", addr, mux)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			s.logger.WithError(err).WithField("addr", addr).Warn("DNS address busy, trying the next one")
+			continue
+		}
+		if err := s.listen("tcp", addr, mux); err != nil {
+			s.logger.WithError(err).Warn("DNS TCP listener unavailable")
+		}
+		activeIP.Store(ip)
+		s.logger.WithFields(logrus.Fields{
+			"addr":        addr,
+			"upstream":    s.upstream,
+			"filter_aaaa": s.opts.FilterAAAA,
+		}).Info("DNS server started")
+		return nil
 	}
-	if err := s.listen("tcp", mux); err != nil {
-		s.logger.WithError(err).Warn("DNS TCP listener unavailable")
-	}
-
-	s.logger.WithFields(logrus.Fields{
-		"addr":        listenAddr,
-		"upstream":    s.upstream,
-		"filter_aaaa": s.opts.FilterAAAA,
-	}).Info("DNS server started")
-	return nil
+	return fmt.Errorf("DNS server: port 53 is in use on every loopback address (%w) — close other DNS/VPN software", firstErr)
 }
-
-func (s *Server) listen(network string, handler dns.Handler) error {
-	srv := &dns.Server{Addr: listenAddr, Net: network, Handler: handler}
+func (s *Server) listen(network, addr string, handler dns.Handler) error {
+	srv := &dns.Server{Addr: addr, Net: network, Handler: handler}
 	started := make(chan error, 1)
 	srv.NotifyStartedFunc = func() { started <- nil }
 	go func() {

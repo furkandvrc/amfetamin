@@ -169,6 +169,8 @@ namespace Amfetamin
             Npcap.EnsureServiceRunning();
 
             await StopAsync();
+            // A pre-4.0 engine still running would hold DNS port 53.
+            if (Migration.LegacyEngineRunning()) RemoveLegacyEngine();
             if (cfg.StopZeroTier) Conflicts.StopZeroTier();
 
             Paths.EnsureDirs();
@@ -247,7 +249,7 @@ namespace Amfetamin
             await Task.Run(ResetLoopbackDns);
         }
 
-        /// <summary>Last resort: any adapter still pointing at 127.0.0.1 goes back to DHCP DNS.</summary>
+        /// <summary>Last resort: any adapter still pointing at a loopback DNS (127.x) goes back to DHCP DNS.</summary>
         private static void ResetLoopbackDns()
         {
             if (IsRunning) return;
@@ -256,7 +258,7 @@ namespace Amfetamin
                 try
                 {
                     var dns = nic.GetIPProperties().DnsAddresses;
-                    if (dns.Any(a => a.ToString() == "127.0.0.1"))
+                    if (dns.Any(a => a.ToString().StartsWith("127.")))
                     {
                         Shell.Run("netsh", $"interface ipv4 set dnsservers name={Shell.Quote(nic.Name)} source=dhcp");
                         Log.Info("DNS reset to DHCP on " + nic.Name);

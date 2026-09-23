@@ -1,5 +1,11 @@
 # Changelog
 
+## v4.0.2
+
+- **"port 53 kullanımda" hatası:** Başka bir program (DNS/VPN yazılımı ya da eski bir motor) 127.0.0.1:53'ü tuttuğunda motor artık başlamayı reddetmiyor; otomatik olarak 127.0.0.53'e (sonra 127.53.53.53) geçiyor ve sistem DNS'ini oraya yönlendiriyor.
+- Bağlanmadan önce hâlâ çalışan eski (v3) motor kapatılıyor.
+- "Ağ ayarlarını onar" yedek adresleri de temizliyor.
+
 ## v4.0.1
 
 - **WhatsApp / bildirimler:** Uzun süre açık kalan bağlantılar (WhatsApp, Discord gateway, bildirimler), bir yön 5 dakika sessiz kalınca kopuyordu; mesajlar gecikiyor ya da gelmiyordu. Bağlantılar artık yalnızca tamamen boşta kaldığında (2 saat) kapanıyor.

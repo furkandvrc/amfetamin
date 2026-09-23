@@ -31,7 +31,7 @@ func platformCleanup() bool {
 	}
 
 	if out, err := exec.Command("networksetup", "-getdnsservers", "Wi-Fi").CombinedOutput(); err == nil {
-		if strings.TrimSpace(string(out)) == "127.0.0.1" {
+		if dns.IsOurAddress(strings.TrimSpace(string(out))) {
 			fmt.Println("resetting DNS to DHCP...")
 			exec.Command("networksetup", "-setdnsservers", "Wi-Fi", "empty").CombinedOutput()
 			cleaned = true

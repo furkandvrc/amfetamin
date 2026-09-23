@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	gecitdns "github.com/boratanrikulu/gecit/pkg/dns"
 	"github.com/boratanrikulu/gecit/pkg/netif"
 	"github.com/boratanrikulu/gecit/pkg/rawsock"
 	"github.com/boratanrikulu/gecit/pkg/seqtrack"
@@ -253,7 +254,7 @@ func (m *Manager) tunOptions() tun.Options {
 		StrictRoute:      false,
 		InterfaceMonitor: m.ifaceMonitor,
 		InterfaceFinder:  m.ifaceFinder,
-		DNSServers:       []netip.Addr{netip.MustParseAddr("127.0.0.1")},
+		DNSServers:       []netip.Addr{netip.MustParseAddr(gecitdns.ActiveIP())},
 	}
 	var excludes []netip.Prefix
 	if m.lanExclude() {

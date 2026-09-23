@@ -19,7 +19,7 @@ func SetSystemDNS() error {
 
 	var lines []string
 	lines = append(lines, "# gecit: DoH DNS active — original lines commented below")
-	lines = append(lines, "nameserver 127.0.0.1")
+	lines = append(lines, "nameserver "+ActiveIP())
 
 	for _, line := range strings.Split(string(orig), "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -51,7 +51,7 @@ func RestoreSystemDNS() error {
 			lines = append(lines, strings.TrimPrefix(trimmed, "# gecit-saved: "))
 		} else if strings.HasPrefix(trimmed, "# gecit") {
 			continue // remove gecit marker
-		} else if trimmed == "nameserver 127.0.0.1" {
+		} else if strings.HasPrefix(trimmed, "nameserver ") && IsOurAddress(strings.TrimSpace(strings.TrimPrefix(trimmed, "nameserver "))) {
 			continue // remove our nameserver
 		} else if trimmed != "" {
 			lines = append(lines, line)

@@ -79,7 +79,7 @@ func SetSystemDNS(networkService ...string) error {
 	if data, _, err := ReadDNSBackup(); err == nil {
 		lines := strings.SplitN(string(data), "\n", 2)
 		prev := strings.TrimSpace(lines[0])
-		if prev != "" && prev != "127.0.0.1" && prev != "empty" {
+		if prev != "" && !IsOurAddress(prev) && prev != "empty" {
 			parts := strings.Fields(prev)
 			args := append([]string{"-setdnsservers", svc}, parts...)
 			exec.Command("networksetup", args...).CombinedOutput()
@@ -96,7 +96,7 @@ func SetSystemDNS(networkService ...string) error {
 		os.WriteFile(breadcrumbFile, []byte(content+"\n"+svc+"\n"), 0644)
 	}
 
-	out, err = exec.Command("networksetup", "-setdnsservers", svc, "127.0.0.1").CombinedOutput()
+	out, err = exec.Command("networksetup", "-setdnsservers", svc, ActiveIP()).CombinedOutput()
 	if err != nil {
 		return err
 	}
