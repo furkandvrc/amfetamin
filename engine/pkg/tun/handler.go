@@ -363,7 +363,8 @@ func pipe(a, b net.Conn) {
 		buffer := buf.Get(32 * 1024)
 		defer buf.Put(buffer)
 		for {
-			src.SetReadDeadline(time.Now().Add(pipeIdleCheck))
+			readStart := time.Now()
+			src.SetReadDeadline(readStart.Add(pipeIdleCheck))
 			n, err := src.Read(buffer)
 			if n > 0 {
 				lastSeen.Store(time.Now().UnixNano())
@@ -372,7 +373,12 @@ func pipe(a, b net.Conn) {
 				}
 			}
 			if err != nil {
-				if isTimeout(err) && !closed.Load() &&
+				// Only a read that actually sat out our deadline means "quiet".
+				// ETIMEDOUT from a failed handshake or keepalive also reports
+				// Timeout(), but comes back immediately on every call —
+				// retrying it would spin a core for tcpIdleTimeout.
+				waited := time.Since(readStart) >= pipeIdleCheck/2
+				if waited && isTimeout(err) && !closed.Load() &&
 					time.Since(time.Unix(0, lastSeen.Load())) < tcpIdleTimeout {
 					continue // this direction is quiet, the connection is not
 				}

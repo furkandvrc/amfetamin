@@ -1,5 +1,11 @@
 # Changelog
 
+## v4.0.3
+
+- **Yüksek CPU kullanımı (Windows):** `amfetamin-engine.exe` bazı bilgisayarlarda işlemcinin %70-90'ını kullanıyordu. Uygulama tarafında el sıkışması zaman aşımına uğrayan bir bağlantı, 2 saat boyunca boşta dönen bir döngüde kalıyordu; bu tür her bağlantı bir çekirdeği tamamen dolduruyordu. Bu bağlantılar artık hemen kapatılıyor. (v4.0.1'deki WhatsApp düzeltmesi korunuyor.)
+- Paket gönderen Npcap bağlantısı artık ağdaki her paketi boşuna kopyalamıyor.
+- Uygulama tepsideyken durum kontrolünü 2.5 saniye yerine 15 saniyede bir yapıyor.
+
 ## v4.0.2
 
 - **"port 53 kullanımda" hatası:** Başka bir program (DNS/VPN yazılımı ya da eski bir motor) 127.0.0.1:53'ü tuttuğunda motor artık başlamayı reddetmiyor; otomatik olarak 127.0.0.53'e (sonra 127.53.53.53) geçiyor ve sistem DNS'ini oraya yönlendiriyor.

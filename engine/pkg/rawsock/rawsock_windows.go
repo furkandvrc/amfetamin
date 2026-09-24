@@ -37,6 +37,9 @@ func New(iface netif.Info) (RawSocket, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pcap open %s: %w (is Npcap installed?)", iface.Name, err)
 	}
+	// This handle only sends. Without a filter Npcap would still copy every
+	// packet on the NIC into its buffer for a reader that never comes.
+	_ = handle.SetBPFFilter("less 1")
 
 	s := &pcapRawSocket{handle: handle, device: dev, iface: iface, srcMAC: iface.MAC}
 	if len(s.srcMAC) != 6 {

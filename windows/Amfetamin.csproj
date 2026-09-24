@@ -17,7 +17,7 @@
     <RootNamespace>Amfetamin</RootNamespace>
     <ApplicationIcon>..\assets\amfetamin.ico</ApplicationIcon>
     <ApplicationManifest>src\app.manifest</ApplicationManifest>
-    <Version>4.0.2</Version>
+    <Version>4.0.3</Version>
     <Company>furkandvrc</Company>
     <Product>amfetamin</Product>
     <Description>amfetamin — DPI bypass</Description>

@@ -25,6 +25,7 @@ namespace Amfetamin.UI
         };
         private readonly Timer _toastTimer = new Timer();
         private readonly Timer _statusTimer = new Timer { Interval = 2500 };
+        private int _hiddenTicks;
         private readonly Timer _discordTimer = new Timer { Interval = 60000 };
         private readonly Timer _busyAnim = new Timer { Interval = 16 };
         private float _busyPos;
@@ -112,7 +113,9 @@ namespace Amfetamin.UI
             Controls.Add(sidebar);
 
             _toastTimer.Tick += (_, __) => { _toastTimer.Stop(); _toast.Visible = false; };
-            _statusTimer.Tick += (_, __) => _app.RefreshStatus();
+            // Each refresh enumerates processes and services; in the tray only
+            // the icon text needs it, so poll every ~15 s there.
+            _statusTimer.Tick += (_, __) => { if (Visible || ++_hiddenTicks % 6 == 0) _app.RefreshStatus(); };
             _discordTimer.Tick += async (_, __) => await _app.CheckDiscordAsync();
 
             SetupTray();

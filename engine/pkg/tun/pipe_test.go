@@ -5,6 +5,7 @@ package tun
 import (
 	"io"
 	"net"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -67,5 +68,37 @@ func TestPipeClosesWhenPeerCloses(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("pipe did not return after both peers closed")
+	}
+}
+
+// deadConn fails every read at once with an error that looks like a timeout,
+// like a gvisor conn whose lazy handshake timed out (ETIMEDOUT is cached and
+// returned on every call).
+type deadConn struct {
+	net.Conn
+	reads int
+}
+
+func (c *deadConn) Read([]byte) (int, error) {
+	c.reads++
+	return 0, &net.OpError{Op: "read", Net: "tcp", Err: syscall.ETIMEDOUT}
+}
+
+func (c *deadConn) SetReadDeadline(time.Time) error { return syscall.ETIMEDOUT }
+func (c *deadConn) SetDeadline(time.Time) error     { return syscall.ETIMEDOUT }
+
+// A timeout-looking error that comes back without waiting out the deadline
+// must end the pipe instead of spinning on it (this pegged CPU cores).
+func TestPipeDoesNotSpinOnImmediateTimeoutError(t *testing.T) {
+	serverSide, server := tcpPair(t)
+	defer server.Close()
+	app := &deadConn{Conn: serverSide}
+
+	done := make(chan struct{})
+	go func() { pipe(app, serverSide); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("pipe still running after %d immediate reads", app.reads)
 	}
 }
